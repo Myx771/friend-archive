@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>朋友档案馆</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
 <style>
   :root {
     --bg: #f8f9fc;
@@ -430,6 +430,19 @@
         <label>备注</label>
         <textarea id="fNote" placeholder="想记住的任何事情…"></textarea>
       </div>
+      <div class="form-group">
+        <label>访客可见范围（不勾选 = 仅管理员可见）</label>
+        <div style="display:flex;flex-wrap:wrap;gap:8px 16px;font-size:13px;color:var(--text-2)">
+          <label style="display:flex;align-items:center;gap:4px;font-weight:400"><input type="checkbox" class="vis-chk" data-k="phone" checked> 电话</label>
+          <label style="display:flex;align-items:center;gap:4px;font-weight:400"><input type="checkbox" class="vis-chk" data-k="birthday" checked> 生日</label>
+          <label style="display:flex;align-items:center;gap:4px;font-weight:400"><input type="checkbox" class="vis-chk" data-k="tags" checked> 爱好标签</label>
+          <label style="display:flex;align-items:center;gap:4px;font-weight:400"><input type="checkbox" class="vis-chk" data-k="emoji" checked> 表情包</label>
+          <label style="display:flex;align-items:center;gap:4px;font-weight:400"><input type="checkbox" class="vis-chk" data-k="catchphrase" checked> 口头禅</label>
+          <label style="display:flex;align-items:center;gap:4px;font-weight:400"><input type="checkbox" class="vis-chk" data-k="quote" checked> 最喜欢的话</label>
+          <label style="display:flex;align-items:center;gap:4px;font-weight:400"><input type="checkbox" class="vis-chk" data-k="dislike" checked> 雷区</label>
+          <label style="display:flex;align-items:center;gap:4px;font-weight:400"><input type="checkbox" class="vis-chk" data-k="note" checked> 备注</label>
+        </div>
+      </div>
       <div class="modal-actions">
         <button type="button" class="btn btn-ghost" onclick="closeForm()">取消</button>
         <button type="submit" class="btn btn-primary">保存</button>
@@ -617,6 +630,12 @@ function colorOf(id) {
   return COLORS[h % COLORS.length];
 }
 function esc(s){ const d=document.createElement('div'); d.textContent=s==null?'':s; return d.innerHTML; }
+// 字段级可见性：管理员全可见；访客看 f.visible[key]（缺省视为可见，兼容旧数据）
+function canSee(f, k) {
+  if (currentRole === 'admin') return true;
+  if (!f || !f.visible) return true;
+  return f.visible[k] !== false;
+}
 
 /* ---------- 工具 ---------- */
 function getZodiac(b) {
@@ -706,11 +725,11 @@ function render() {
         </div>
         ${stickerHTML(f)}
       </div>
-      ${f.catchphrase?`<div style="font-size:13px;color:var(--text-2);font-style:italic;margin:-6px 0 10px">"${esc(f.catchphrase)}"</div>`:''}
-      <div class="tag-row">${tags.slice(0,5).map(t=>`<span class="tag">${esc(t)}</span>`).join('')}</div>
+      ${f.catchphrase&&canSee(f,'catchphrase')?`<div style="font-size:13px;color:var(--text-2);font-style:italic;margin:-6px 0 10px">"${esc(f.catchphrase)}"</div>`:''}
+      <div class="tag-row">${canSee(f,'tags')?tags.slice(0,5).map(t=>`<span class="tag">${esc(t)}</span>`).join(''):''}</div>
       <div class="card-meta">
-        ${f.phone?`<span>📞 ${esc(f.phone)}</span>`:''}
-        ${f.birthday?`<span class="${d!==null&&d<=7?'birthday-soon':''}">🎂 ${d===0?'今天！':d+'天后'}</span>`:''}
+        ${f.phone&&canSee(f,'phone')?`<span>📞 ${esc(f.phone)}</span>`:''}
+        ${f.birthday&&canSee(f,'birthday')?`<span class="${d!==null&&d<=7?'birthday-soon':''}">🎂 ${d===0?'今天！':d+'天后'}</span>`:''}
       </div>
     </div>`;
   }).join('');
@@ -922,9 +941,9 @@ function renderSky(list, kw) {
 
     // HTML 标签（名字 + 悬浮提示）
     const tipLines = [];
-    if (f.catchphrase) tipLines.push(`💬 "${esc(f.catchphrase)}"`);
-    if (f.birthday) tipLines.push(`🎂 ${d === 0 ? '今天生日！' : d + ' 天后生日'}`);
-    if (f.tags) tipLines.push(`🏷️ ${esc(f.tags)}`);
+    if (f.catchphrase && canSee(f,'catchphrase')) tipLines.push(`💬 "${esc(f.catchphrase)}"`);
+    if (f.birthday && canSee(f,'birthday')) tipLines.push(`🎂 ${d === 0 ? '今天生日！' : d + ' 天后生日'}`);
+    if (f.tags && canSee(f,'tags')) tipLines.push(`🏷️ ${esc(f.tags)}`);
     const lb = document.createElement('div');
     lb.className = 'star3d-label' + (dimmed ? ' dim' : '');
     lb.style.pointerEvents = 'auto';
@@ -991,7 +1010,7 @@ function avatarHTML(f, sizeClass) {
 }
 function stickerHTML(f) {
   if (f.sticker) return `<img class="sticker-img" src="${f.sticker}" alt="">`;
-  if (f.emoji) return `<div style="font-size:24px;margin-left:auto">${esc(f.emoji)}</div>`;
+  if (f.emoji && canSee(f,'emoji')) return `<div style="font-size:24px;margin-left:auto">${esc(f.emoji)}</div>`;
   return '';
 }
 
@@ -1011,6 +1030,9 @@ function openForm(f) {
   document.getElementById('fQuote').value = f ? (f.quote||'') : '';
   document.getElementById('fDislike').value = f ? (f.dislike||'') : '';
   document.getElementById('fNote').value = f ? (f.note||'') : '';
+  // 回填可见性勾选（旧数据缺省全可见）
+  const vis = f && f.visible ? f.visible : {};
+  document.querySelectorAll('.vis-chk').forEach(c => { c.checked = vis[c.dataset.k] !== false; });
   tempPhoto = f ? (f.photo||'') : '';
   tempSticker = f ? (f.sticker||'') : '';
   const pp = document.getElementById('photoPreview');
@@ -1040,6 +1062,10 @@ function saveFriend(e) {
     photo: tempPhoto,
     sticker: tempSticker,
   };
+  // 收集访客可见范围
+  const visible = {};
+  document.querySelectorAll('.vis-chk').forEach(c => { visible[c.dataset.k] = c.checked; });
+  data.visible = visible;
   if (!data.name) return;
   if (editingId) {
     const f = friends.find(x=>x.id===editingId);
@@ -1068,15 +1094,16 @@ function openDetail(id) {
         ${f.nickname?`<div style="color:var(--text-3);font-size:13px">昵称：${esc(f.nickname)}</div>`:''}
       </div>
     </div>
-    ${f.birthday?`<div class="detail-row"><span class="k">生日</span>${esc(f.birthday)}${zodiac?' · '+esc(zodiac)+'座':''}${d!==null?` · ${d===0?'就是今天！🎉':d+'天后'}`:''}</div>`:''}
-    ${f.phone?`<div class="detail-row"><span class="k">电话</span><a href="tel:${esc(f.phone)}">${esc(f.phone)}</a></div>`:''}
-    ${tags.length?`<div class="detail-row"><span class="k">爱好</span>${tags.map(t=>`<span class="tag">${esc(t)}</span>`).join('')}</div>`:''}
-    ${f.emoji?`<div class="detail-row"><span class="k">表情包</span><span style="font-size:20px">${esc(f.emoji)}</span></div>`:''}
+    ${f.birthday&&canSee(f,'birthday')?`<div class="detail-row"><span class="k">生日</span>${esc(f.birthday)}${zodiac?' · '+esc(zodiac)+'座':''}${d!==null?` · ${d===0?'就是今天！🎉':d+'天后'}`:''}</div>`:''}
+    ${f.phone&&canSee(f,'phone')?`<div class="detail-row"><span class="k">电话</span><a href="tel:${esc(f.phone)}">${esc(f.phone)}</a></div>`:''}
+    ${tags.length&&canSee(f,'tags')?`<div class="detail-row"><span class="k">爱好</span>${tags.map(t=>`<span class="tag">${esc(t)}</span>`).join('')}</div>`:''}
+    ${f.emoji&&canSee(f,'emoji')?`<div class="detail-row"><span class="k">表情包</span><span style="font-size:20px">${esc(f.emoji)}</span></div>`:''}
     ${f.sticker?`<div class="detail-row"><span class="k">表情图</span><img src="${f.sticker}" style="width:64px;height:64px;object-fit:contain;border-radius:8px;vertical-align:middle"></div>`:''}
-    ${f.catchphrase?`<div class="detail-row"><span class="k">口头禅</span>"${esc(f.catchphrase)}"</div>`:''}
-    ${f.quote?`<div class="detail-row"><span class="k">最爱的话</span><i>${esc(f.quote)}</i></div>`:''}
-    ${f.dislike?`<div class="detail-row"><span class="k">⚠️ 雷区</span><span style="color:var(--danger)">${esc(f.dislike).replace(/\n/g,'<br>')}</span></div>`:''}
-    ${f.note?`<div class="detail-row"><span class="k">备注</span>${esc(f.note).replace(/\n/g,'<br>')}</div>`:''}
+    ${f.catchphrase&&canSee(f,'catchphrase')?`<div class="detail-row"><span class="k">口头禅</span>"${esc(f.catchphrase)}"</div>`:''}
+    ${f.quote&&canSee(f,'quote')?`<div class="detail-row"><span class="k">最爱的话</span><i>${esc(f.quote)}</i></div>`:''}
+    ${f.dislike&&canSee(f,'dislike')?`<div class="detail-row"><span class="k">⚠️ 雷区</span><span style="color:var(--danger)">${esc(f.dislike).replace(/\n/g,'<br>')}</span></div>`:''}
+    ${f.note&&canSee(f,'note')?`<div class="detail-row"><span class="k">备注</span>${esc(f.note).replace(/\n/g,'<br>')}</div>`:''}
+    ${isAdmin?`<div class="detail-row" style="border-top:1px dashed #e5e7eb;margin-top:6px;padding-top:12px;font-size:12px;color:var(--text-3)">🔒 访客可见：${(()=>{const K={phone:'电话',birthday:'生日',tags:'爱好',emoji:'表情包',catchphrase:'口头禅',quote:'最爱的话',dislike:'雷区',note:'备注'};const v=f.visible||{};const off=Object.keys(K).filter(k=>v[k]===false);return off.length?'隐藏 '+off.map(k=>K[k]).join('、'):'全部可见';})()}</div>`:''}
     <div class="modal-actions">
       ${isAdmin?`<button class="btn btn-danger btn-sm" onclick="removeFriend('${f.id}')">删除</button>`:''}
       <button class="btn btn-ghost btn-sm" onclick="closeDetail()">关闭</button>
