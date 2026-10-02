@@ -1,0 +1,839 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>朋友档案馆</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root {
+    --bg: #f8f9fc;
+    --surface: #ffffff;
+    --surface-hover: #f7f8fb;
+    --text: #1a1d2b;
+    --text-2: #6b7280;
+    --text-3: #9ca3af;
+    --accent: #4f46e5;
+    --accent-light: #eef2ff;
+    --accent-hover: #4338ca;
+    --danger: #ef4444;
+    --danger-bg: #fef2f2;
+    --warning: #f59e0b;
+    --warning-bg: #fffbeb;
+    --success: #10b981;
+    --radius-sm: 12px;
+    --radius: 16px;
+    --radius-lg: 24px;
+    --shadow: 0 1px 3px rgba(0,0,0,.04), 0 1px 2px rgba(0,0,0,.04);
+    --shadow-md: 0 4px 6px -1px rgba(0,0,0,.06), 0 2px 4px -2px rgba(0,0,0,.04);
+    --shadow-lg: 0 20px 25px -5px rgba(0,0,0,.08), 0 8px 10px -6px rgba(0,0,0,.04);
+    --shadow-xl: 0 25px 50px -12px rgba(0,0,0,.15);
+    --transition: .25s cubic-bezier(.4,0,.2,1);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    min-height: 100vh;
+    font-family: "Inter", system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    color: var(--text);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ===== 顶部 ===== */
+  header {
+    position: sticky; top: 0; z-index: 50;
+    background: rgba(255,255,255,.72);
+    backdrop-filter: blur(16px) saturate(1.8);
+    -webkit-backdrop-filter: blur(16px) saturate(1.8);
+    border-bottom: 1px solid rgba(0,0,0,.04);
+    padding: 20px 24px 16px;
+  }
+  .header-inner {
+    max-width: 1120px; margin: 0 auto;
+    display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;
+  }
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .brand-icon {
+    width: 42px; height: 42px; border-radius: var(--radius-sm);
+    background: linear-gradient(135deg, var(--accent), #7c3aed);
+    color: #fff; display: flex; align-items: center; justify-content: center;
+    font-size: 22px; box-shadow: 0 4px 14px rgba(79,70,229,.35);
+  }
+  .brand h1 { font-size: 20px; font-weight: 700; letter-spacing: -.3px; }
+  .brand p { font-size: 12px; color: var(--text-3); margin-top: -2px; }
+
+  /* ===== 工具栏 ===== */
+  .toolbar {
+    max-width: 1120px; margin: 20px auto 0; padding: 0 24px;
+    display: flex; gap: 12px; flex-wrap: wrap; align-items: center;
+  }
+  .search-wrap {
+    flex: 1; min-width: 220px; position: relative;
+  }
+  .search-wrap input {
+    width: 100%; padding: 11px 16px 11px 42px; border-radius: var(--radius);
+    border: 1.5px solid #e5e7eb; font-size: 14px; outline: none;
+    background: var(--surface); transition: var(--transition); color: var(--text);
+  }
+  .search-wrap input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(79,70,229,.1); }
+  .search-wrap::before {
+    content: "🔍"; position: absolute; left: 14px; top: 50%; transform: translateY(-50%);
+    font-size: 14px; opacity: .6; pointer-events: none;
+  }
+  .btn {
+    padding: 11px 20px; border: none; border-radius: var(--radius); cursor: pointer;
+    font-size: 14px; font-weight: 600; transition: var(--transition); user-select: none;
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .btn-primary {
+    background: var(--accent); color: #fff; box-shadow: 0 4px 14px rgba(79,70,229,.3);
+  }
+  .btn-primary:hover { background: var(--accent-hover); transform: translateY(-1px); box-shadow: 0 6px 20px rgba(79,70,229,.35); }
+  .btn-primary:active { transform: scale(.98); }
+  .btn-ghost { background: var(--surface); color: var(--text-2); border: 1.5px solid #e5e7eb; }
+  .btn-ghost:hover { background: #f3f4f6; border-color: #d1d5db; }
+  .btn-danger { background: var(--danger-bg); color: var(--danger); border: 1.5px solid #fecaca; }
+  .btn-danger:hover { background: #fee2e2; }
+  .btn-sm { padding: 7px 14px; font-size: 13px; }
+
+  /* ===== 统计 + 横幅 ===== */
+  .banner {
+    max-width: 1120px; margin: 16px auto 0; padding: 0 24px;
+  }
+  .banner-inner {
+    display: none; align-items: center; gap: 10px; padding: 12px 18px;
+    background: var(--warning-bg); border: 1px solid #fde68a; border-radius: var(--radius);
+    font-size: 13px; color: #92400e; animation: slideDown .3s ease;
+  }
+  .banner-inner.show { display: flex; }
+  @keyframes slideDown { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
+
+  .stats {
+    max-width: 1120px; margin: 16px auto 0; padding: 0 24px;
+    display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;
+  }
+  .stat-pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: var(--surface); border: 1px solid #e5e7eb; border-radius: 999px;
+    padding: 6px 14px; font-size: 13px; color: var(--text-2); font-weight: 500;
+    box-shadow: var(--shadow);
+  }
+
+  /* ===== 卡片列表 ===== */
+  .grid {
+    max-width: 1120px; margin: 18px auto 80px; padding: 0 24px;
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 20px;
+  }
+  .card {
+    background: var(--surface); border-radius: var(--radius-lg);
+    padding: 24px; cursor: pointer; position: relative; overflow: hidden;
+    border: 1px solid rgba(0,0,0,.04);
+    box-shadow: var(--shadow); transition: var(--transition);
+    animation: cardIn .4s ease both;
+  }
+  .card:nth-child(1){ animation-delay: .02s }
+  .card:nth-child(2){ animation-delay: .04s }
+  .card:nth-child(3){ animation-delay: .06s }
+  .card:nth-child(4){ animation-delay: .08s }
+  .card:nth-child(5){ animation-delay: .10s }
+  .card:nth-child(6){ animation-delay: .12s }
+  @keyframes cardIn { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+
+  .card:hover {
+    transform: translateY(-4px) scale(1.01);
+    box-shadow: var(--shadow-lg);
+    border-color: rgba(79,70,229,.08);
+  }
+  .card-head { display: flex; align-items: center; gap: 14px; margin-bottom: 16px; }
+  .avatar {
+    width: 56px; height: 56px; border-radius: 50%; color: #fff; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22px; font-weight: 700; letter-spacing: .5px;
+    box-shadow: 0 4px 12px rgba(0,0,0,.12);
+    transition: var(--transition);
+  }
+  .card:hover .avatar { transform: scale(1.08); }
+  .card-info { min-width: 0; }
+  .card-info h3 {
+    font-size: 17px; font-weight: 700; color: var(--text);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .card-info .sub {
+    font-size: 13px; color: var(--text-3); margin-top: 2px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .tag-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+  .tag {
+    display: inline-flex; align-items: center; gap: 4px;
+    background: var(--accent-light); color: var(--accent);
+    border-radius: 999px; padding: 4px 12px; font-size: 12px; font-weight: 600;
+    transition: var(--transition);
+  }
+  .tag:hover { background: #e0e7ff; }
+  .card-meta {
+    margin-top: 14px; padding-top: 14px; border-top: 1px solid #f3f4f6;
+    display: flex; flex-wrap: wrap; gap: 10px 18px; font-size: 13px; color: var(--text-2);
+  }
+  .card-meta span { display: inline-flex; align-items: center; gap: 4px; }
+  .birthday-soon { color: #ea580c; font-weight: 600; }
+  .empty {
+    grid-column: 1/-1; text-align: center; color: var(--text-3); padding: 100px 20px;
+  }
+  .empty .big { font-size: 64px; margin-bottom: 16px; opacity: .5; }
+  .empty p { font-size: 15px; }
+
+  /* ===== 弹窗 ===== */
+  .modal-mask {
+    position: fixed; inset: 0; background: rgba(15,23,42,.45);
+    display: none; align-items: center; justify-content: center; z-index: 100; padding: 20px;
+    backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+  }
+  .modal-mask.show { display: flex; }
+  .modal {
+    background: var(--surface); border-radius: var(--radius-lg);
+    width: 100%; max-width: 460px; max-height: 92vh; overflow-y: auto;
+    padding: 32px; box-shadow: var(--shadow-xl); animation: pop .25s cubic-bezier(.34,1.56,.64,1);
+  }
+  @keyframes pop { from { opacity: 0; transform: scale(.92) translateY(10px); } to { opacity: 1; transform: scale(1) translateY(0); } }
+  .modal h2 { margin-bottom: 24px; font-size: 20px; font-weight: 700; }
+  .form-group { margin-bottom: 18px; }
+  .form-group label {
+    display: block; font-size: 13px; font-weight: 600; color: var(--text-2);
+    margin-bottom: 6px;
+  }
+  .form-group input, .form-group textarea, .form-group select {
+    width: 100%; padding: 11px 14px; border: 1.5px solid #e5e7eb; border-radius: var(--radius-sm);
+    font-size: 14px; outline: none; transition: var(--transition); color: var(--text); background: var(--surface);
+    font-family: inherit;
+  }
+  .form-group input:focus, .form-group textarea:focus {
+    border-color: var(--accent); box-shadow: 0 0 0 3px rgba(79,70,229,.1);
+  }
+  .form-group textarea { resize: vertical; min-height: 90px; }
+  .modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 24px; }
+
+  /* 详情弹窗 */
+  .detail-head { display: flex; align-items: center; gap: 16px; margin-bottom: 20px; }
+  .detail-head .avatar { width: 64px; height: 64px; font-size: 26px; }
+  .detail-row { padding: 12px 0; border-bottom: 1px solid #f3f4f6; font-size: 14px; }
+  .detail-row:last-child { border-bottom: none; }
+  .detail-row .k { color: var(--text-3); display: inline-block; width: 64px; font-weight: 500; }
+  .detail-row a { color: var(--accent); text-decoration: none; font-weight: 500; }
+  .detail-row a:hover { text-decoration: underline; }
+
+  /* ===== 密码锁屏 ===== */
+  .lock-screen {
+    position: fixed; inset: 0; z-index: 200;
+    background: linear-gradient(135deg, #eef2ff 0%, #f8f9fc 50%, #faf5ff 100%);
+    display: none; align-items: center; justify-content: center; padding: 20px;
+  }
+  .lock-screen.show { display: flex; }
+  .lock-card {
+    background: var(--surface); border-radius: var(--radius-lg);
+    padding: 40px 36px; width: 100%; max-width: 380px; text-align: center;
+    box-shadow: var(--shadow-xl); animation: pop .3s cubic-bezier(.34,1.56,.64,1);
+  }
+  .lock-icon {
+    width: 72px; height: 72px; margin: 0 auto 20px; border-radius: 50%;
+    background: linear-gradient(135deg, var(--accent), #7c3aed);
+    color: #fff; display: flex; align-items: center; justify-content: center;
+    font-size: 32px; box-shadow: 0 8px 24px rgba(79,70,229,.35);
+  }
+  .lock-card h2 { font-size: 22px; font-weight: 700; margin-bottom: 6px; }
+  .lock-card p { font-size: 13px; color: var(--text-3); margin-bottom: 24px; }
+  .lock-card input {
+    width: 100%; padding: 13px 16px; border: 1.5px solid #e5e7eb; border-radius: var(--radius-sm);
+    font-size: 15px; outline: none; text-align: center; letter-spacing: 2px;
+    transition: var(--transition); margin-bottom: 12px; font-family: inherit;
+  }
+  .lock-card input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(79,70,229,.1); }
+  .lock-card .btn { width: 100%; justify-content: center; padding: 13px; }
+  .lock-error {
+    color: var(--danger); font-size: 13px; margin-bottom: 10px; min-height: 18px;
+  }
+  .lock-card.shake { animation: shake .4s ease; }
+  @keyframes shake {
+    0%,100% { transform: translateX(0); }
+    20%,60% { transform: translateX(-8px); }
+    40%,80% { transform: translateX(8px); }
+  }
+  .lock-tip { margin-top: 16px; font-size: 12px; color: var(--text-3); }
+  .lock-tip a { color: var(--accent); cursor: pointer; text-decoration: none; }
+  .lock-tip a:hover { text-decoration: underline; }
+
+  /* ===== 图片上传 ===== */
+  .upload-row { display: flex; gap: 10px; align-items: center; }
+  .upload-preview {
+    width: 56px; height: 56px; border-radius: var(--radius-sm); object-fit: cover;
+    border: 1.5px solid #e5e7eb; display: none; background: #f3f4f6;
+  }
+  .upload-preview.show { display: block; }
+  img.avatar { object-fit: cover; border: none; }
+  .sticker-img { width: 36px; height: 36px; object-fit: contain; margin-left: auto; }
+</style>
+</head>
+<body>
+
+<!-- 密码锁屏 -->
+<div class="lock-screen" id="lockScreen">
+  <div class="lock-card" id="lockCard">
+    <div class="lock-icon">🔒</div>
+    <h2 id="lockTitle">朋友档案馆</h2>
+    <p id="lockDesc">请输入密码解锁</p>
+    <div class="lock-error" id="lockError"></div>
+    <input type="password" id="lockPwd" placeholder="输入密码" maxlength="32" autocomplete="off">
+    <button class="btn btn-primary" id="lockBtn" onclick="submitLock()">解锁</button>
+    <div class="lock-tip" id="lockTip"></div>
+  </div>
+</div>
+
+<header>
+  <div class="header-inner">
+    <div class="brand">
+      <div class="brand-icon">👥</div>
+      <div>
+        <h1>朋友档案馆</h1>
+        <p>记录每一份珍贵的友谊</p>
+      </div>
+    </div>
+    <div style="display:flex;gap:10px;align-items:center">
+      <span class="stat-pill" id="roleBadge" style="display:none"></span>
+      <button class="btn btn-ghost btn-sm" id="shareBtn" onclick="exportShare()" title="导出分享版">📤 分享</button>
+      <button class="btn btn-ghost btn-sm" onclick="lockNow()" title="锁定">🔒 锁定</button>
+      <button class="btn btn-primary" id="addBtn" onclick="openForm()">＋ 新建档案</button>
+    </div>
+  </div>
+</header>
+
+<div class="toolbar">
+  <div class="search-wrap">
+    <input type="search" id="searchInput" placeholder="搜索姓名、爱好、标签…">
+  </div>
+  <select id="sortSelect" class="btn btn-ghost" style="outline:none; padding-right:28px">
+    <option value="new">最近添加</option>
+    <option value="name">按姓名</option>
+    <option value="birthday">按生日</option>
+  </select>
+</div>
+
+<div class="banner" id="birthdayBanner"><div class="banner-inner" id="birthdayInner"></div></div>
+
+<div class="stats" id="statsBar"></div>
+<div class="grid" id="cardGrid"></div>
+
+<!-- 新建/编辑 表单弹窗 -->
+<div class="modal-mask" id="formMask">
+  <div class="modal">
+    <h2 id="formTitle">新建朋友档案</h2>
+    <form id="friendForm" onsubmit="saveFriend(event)">
+      <input type="hidden" id="fId">
+      <div class="form-group">
+        <label>姓名 *</label>
+        <input id="fName" required maxlength="20" placeholder="朋友的名字">
+      </div>
+      <div class="form-group">
+        <label>昵称</label>
+        <input id="fNickname" maxlength="20" placeholder="平时怎么称呼TA">
+      </div>
+      <div class="form-group">
+        <label>照片</label>
+        <div class="upload-row">
+          <img class="upload-preview" id="photoPreview" alt="">
+          <input type="file" id="fPhoto" accept="image/*" style="display:none" onchange="onPhotoPick(event)">
+          <button type="button" class="btn btn-ghost btn-sm" onclick="document.getElementById('fPhoto').click()">📷 选择照片</button>
+          <button type="button" class="btn btn-ghost btn-sm" id="photoClearBtn" style="display:none" onclick="clearPhoto()">移除</button>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>生日</label>
+        <input id="fBirthday" type="date">
+      </div>
+      <div class="form-group">
+        <label>电话</label>
+        <input id="fPhone" maxlength="20" placeholder="手机号码">
+      </div>
+      <div class="form-group">
+        <label>爱好 / 标签</label>
+        <input id="fTags" placeholder="用逗号分隔，如：篮球, 音乐, 吃货">
+      </div>
+      <div class="form-group">
+        <label>最喜欢的表情包</label>
+        <input id="fEmoji" maxlength="10" placeholder="输入 emoji，如：🐶 😂">
+        <div class="upload-row" style="margin-top:8px">
+          <img class="upload-preview" id="stickerPreview" alt="">
+          <input type="file" id="fSticker" accept="image/*" style="display:none" onchange="onStickerPick(event)">
+          <button type="button" class="btn btn-ghost btn-sm" onclick="document.getElementById('fSticker').click()">�️ 或上传图片</button>
+          <button type="button" class="btn btn-ghost btn-sm" id="stickerClearBtn" style="display:none" onclick="clearSticker()">移除</button>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>口头禅</label>
+        <input id="fCatchphrase" maxlength="50" placeholder="TA最常说的话">
+      </div>
+      <div class="form-group">
+        <label>最喜欢的一句话</label>
+        <input id="fQuote" maxlength="100" placeholder="TA的人生格言或最爱引用">
+      </div>
+      <div class="form-group">
+        <label>雷区（不喜欢别人做什么）</label>
+        <textarea id="fDislike" placeholder="如：不喜欢被放鸽子、讨厌别人动TA的东西…"></textarea>
+      </div>
+      <div class="form-group">
+        <label>备注</label>
+        <textarea id="fNote" placeholder="想记住的任何事情…"></textarea>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" onclick="closeForm()">取消</button>
+        <button type="submit" class="btn btn-primary">保存</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- 详情弹窗 -->
+<div class="modal-mask" id="detailMask">
+  <div class="modal" id="detailContent"></div>
+</div>
+
+<script>
+const STORE_KEY = 'friend_archive_v1';
+const EMBEDDED_DATA = null; // 分享版会自动注入数据，请勿手动修改本行
+
+/* ---------- 云数据库（Supabase） ---------- */
+// 把下面两行替换成你自己的 Supabase 项目信息（见部署教程）
+const SUPABASE_URL = 'https://lijgerduhpjheywhwecv.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxpamdlcmR1aHBqaGV5d2h3ZWN2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA5MzU0MzEsImV4cCI6MjEwNjUxMTQzMX0.SdddEqTITN9cCNLKwVfeSLU2cigha17RP9LeL2AhQjM';
+const DB_TABLE = 'friends';
+const db = (SUPABASE_URL.startsWith('https://') && window.supabase)
+  ? window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY)
+  : null;
+
+/* ---------- 密码锁 ---------- */
+// 管理员密码：admin123　访客密码：guest123（修改密码请联系站长重新生成哈希）
+const ADMIN_HASH = '8fbff5fcab1acf1d';
+const GUEST_HASH = '49cb1349c8113c60';
+
+function hashPwd(pwd) {
+  const msg = 'friend_archive_salt::' + pwd;
+  let h1 = 0xdeadbeef, h2 = 0x41c6ce57;
+  for (let i = 0; i < msg.length; i++) {
+    const ch = msg.charCodeAt(i);
+    h1 = Math.imul(h1 ^ ch, 2654435761);
+    h2 = Math.imul(h2 ^ ch, 1597334677);
+  }
+  h1 = Math.imul(h1 ^ (h1>>>16), 2246822507) ^ Math.imul(h2 ^ (h2>>>13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2>>>16), 2246822507) ^ Math.imul(h1 ^ (h1>>>13), 3266489909);
+  return (h2>>>0).toString(16) + (h1>>>0).toString(16);
+}
+
+let currentRole = null; // 'admin' | 'guest'
+
+function showLock() {
+  document.getElementById('lockTitle').textContent = '欢迎回来';
+  document.getElementById('lockDesc').textContent = '请输入密码解锁档案';
+  document.getElementById('lockTip').innerHTML = '管理员可编辑，访客仅查看';
+  document.getElementById('lockPwd').value = '';
+  document.getElementById('lockError').textContent = '';
+  document.getElementById('lockScreen').classList.add('show');
+  setTimeout(()=>document.getElementById('lockPwd').focus(), 50);
+}
+function lockNow() { sessionStorage.removeItem('fa_role'); currentRole = null; showLock(); }
+
+function submitLock() {
+  const pwd = document.getElementById('lockPwd').value;
+  const errEl = document.getElementById('lockError');
+  const card = document.getElementById('lockCard');
+  if (!pwd) { errEl.textContent = '请输入密码'; shake(card); return; }
+  const h = hashPwd(pwd);
+  if (h === ADMIN_HASH) {
+    currentRole = 'admin';
+    sessionStorage.setItem('fa_role', 'admin');
+    unlock();
+  } else if (h === GUEST_HASH) {
+    currentRole = 'guest';
+    sessionStorage.setItem('fa_role', 'guest');
+    unlock();
+  } else {
+    errEl.textContent = '密码错误，请重试';
+    shake(card);
+  }
+}
+function shake(card) {
+  card.classList.remove('shake');
+  void card.offsetWidth;
+  card.classList.add('shake');
+}
+function unlock() {
+  document.getElementById('lockScreen').classList.remove('show');
+  applyRole();
+  render();
+}
+function applyRole() {
+  const isAdmin = currentRole === 'admin';
+  document.getElementById('addBtn').style.display = isAdmin ? 'inline-flex' : 'none';
+  document.getElementById('shareBtn').style.display = isAdmin ? 'inline-flex' : 'none';
+  document.getElementById('roleBadge').textContent = isAdmin ? '👑 管理员' : '👀 访客';
+  document.getElementById('roleBadge').style.display = 'inline-flex';
+}
+document.getElementById('lockPwd').addEventListener('keydown', e=>{ if(e.key==='Enter') submitLock(); });
+const COLORS = ['#4f46e5','#7c3aed','#2563eb','#059669','#d97706','#dc2626','#0891b2','#9333ea','#db2777','#4d7c0f'];
+
+let friends = loadLocal();
+let editingId = null;
+
+function loadLocal() {
+  // 本地缓存（秒开）→ 分享版内置数据 → 空
+  try {
+    const local = localStorage.getItem(STORE_KEY);
+    if (local) { const arr = JSON.parse(local); if (Array.isArray(arr) && arr.length) return arr; }
+  } catch(e){}
+  if (Array.isArray(EMBEDDED_DATA) && EMBEDDED_DATA.length) {
+    return JSON.parse(JSON.stringify(EMBEDDED_DATA));
+  }
+  return [];
+}
+
+// 云端同步：拉取最新数据；若云端为空而本地有数据，则自动把本地数据迁移上云（只发生一次）
+async function syncFromCloud() {
+  if (!db) return;
+  try {
+    const { data, error } = await db.from(DB_TABLE).select('*');
+    if (error) throw error;
+    const migrated = localStorage.getItem('fa_cloud_migrated');
+    if (data && data.length) {
+      friends = data;
+      try { localStorage.setItem(STORE_KEY, JSON.stringify(friends)); } catch(e){}
+      localStorage.setItem('fa_cloud_migrated', '1');
+      render();
+    } else if (friends.length && !migrated) {
+      await persist(); // 首次迁移：本地 → 云端
+      localStorage.setItem('fa_cloud_migrated', '1');
+    } else if (!friends.length || migrated) {
+      friends = []; // 云端确实是空的（例如管理员删光了），以云端为准
+      try { localStorage.setItem(STORE_KEY, JSON.stringify(friends)); } catch(e){}
+      render();
+    }
+  } catch(e) { console.warn('云端同步失败，本次使用本地数据：', e); }
+}
+
+// 管理员导出「分享版」HTML：把当前档案数据直接嵌入文件
+function exportShare() {
+  if (currentRole !== 'admin') { alert('仅管理员可导出。'); return; }
+  const data = JSON.stringify(friends);
+  const html = '<!DOCTYPE html>\n' + document.documentElement.outerHTML;
+  const injected = html.replace(/const EMBEDDED_DATA = (?:null|\[.*?\]);/, 'const EMBEDDED_DATA = ' + data + ';');
+  if (injected === html) { alert('导出失败：未找到注入点'); return; }
+  const blob = new Blob([injected], { type: 'text/html;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = '朋友档案-分享版.html';
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+async function persist() {
+  // 每次完整保存到本地兜底
+  try { localStorage.setItem(STORE_KEY, JSON.stringify(friends)); } catch(e){}
+  // 同步云端（只在数据库已配置时）
+  if (!db) return;
+  try {
+    const { error } = await db.from(DB_TABLE).upsert(friends, { onConflict: 'id' });
+    if (error) console.warn('云端同步失败：', error);
+  } catch(e) { console.warn('云端同步异常：', e); }
+}
+
+async function dbDelete(id) {
+  if (!db) return;
+  try {
+    const { error } = await db.from(DB_TABLE).delete().eq('id', id);
+    if (error) console.warn('云端删除失败：', error);
+  } catch(e) { console.warn('云端删除异常：', e); }
+}
+function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2,6); }
+function colorOf(id) {
+  let h = 0; for (const c of id) h = (h*31 + c.charCodeAt(0)) >>> 0;
+  return COLORS[h % COLORS.length];
+}
+function esc(s){ const d=document.createElement('div'); d.textContent=s==null?'':s; return d.innerHTML; }
+
+/* ---------- 工具 ---------- */
+function getZodiac(b) {
+  if(!b) return '';
+  const [,m,d] = b.split('-').map(Number);
+  const z = [20,19,21,20,21,22,23,23,23,24,23,22];
+  const names = ['摩羯','水瓶','双鱼','白羊','金牛','双子','巨蟹','狮子','处女','天秤','天蝎','射手','摩羯'];
+  return names[m-1 + (d >= z[m-1] ? 1 : 0)];
+}
+function getAge(b) {
+  if(!b) return null;
+  const today = new Date();
+  const [y,m,d] = b.split('-').map(Number);
+  let age = today.getFullYear() - y;
+  if (today.getMonth()+1 < m || (today.getMonth()+1 === m && today.getDate() < d)) age--;
+  return age >= 0 ? age : null;
+}
+function daysToBirthday(b) {
+  if (!b) return null;
+  const today = new Date(); today.setHours(0,0,0,0);
+  const [, m, d] = b.split('-').map(Number);
+  let next = new Date(today.getFullYear(), m-1, d);
+  if (next < today) next = new Date(today.getFullYear()+1, m-1, d);
+  return Math.round((next - today) / 86400000);
+}
+
+/* ---------- 渲染 ---------- */
+function render() {
+  const kw = document.getElementById('searchInput').value.trim().toLowerCase();
+  const sort = document.getElementById('sortSelect').value;
+  const grid = document.getElementById('cardGrid');
+  const bannerInner = document.getElementById('birthdayInner');
+  const stats = document.getElementById('statsBar');
+
+  let list = friends.filter(f => {
+    if (!kw) return true;
+    return [f.name, f.nickname, f.tags, f.note, f.phone]
+      .filter(Boolean).join(' ').toLowerCase().includes(kw);
+  });
+
+  if (sort === 'name') list.sort((a,b)=>a.name.localeCompare(b.name,'zh'));
+  else if (sort === 'birthday') {
+    list.sort((a,b)=>{
+      const da = daysToBirthday(a.birthday), db = daysToBirthday(b.birthday);
+      return (da==null?9999:da) - (db==null?9999:db);
+    });
+  } else list.sort((a,b)=>b.created - a.created);
+
+  // 统计
+  stats.innerHTML = friends.length
+    ? `<span class="stat-pill">🧑‍🤝‍🧑 共 ${friends.length} 位朋友</span>${kw?`<span class="stat-pill">🔍 匹配 ${list.length} 位</span>`:''}`
+    : '';
+
+  // 生日提醒（30天内）
+  const upcoming = friends
+    .map(f=>({f, d: daysToBirthday(f.birthday)}))
+    .filter(x=>x.d!==null && x.d<=30)
+    .sort((a,b)=>a.d-b.d);
+  if (upcoming.length) {
+    bannerInner.className = 'banner-inner show';
+    bannerInner.innerHTML = '🎂 ' + upcoming.map(({f,d})=>
+      d===0 ? `<b>${esc(f.name)}</b> 今天生日 🎉` : `<b>${esc(f.name)}</b> ${d} 天后生日`
+    ).join('　·　');
+  } else bannerInner.className = 'banner-inner';
+
+  // 卡片
+  if (!list.length) {
+    const emptyTip = friends.length
+      ? '没有找到匹配的朋友'
+      : (currentRole === 'admin' ? '还没有档案，点击右上角「新建档案」开始吧' : '暂无档案，请联系管理员添加');
+    grid.innerHTML = `<div class="empty">
+      <div class="big">📭</div>
+      <p>${emptyTip}</p>
+    </div>`;
+    return;
+  }
+  grid.innerHTML = list.map(f=>{
+    const d = daysToBirthday(f.birthday);
+    const age = getAge(f.birthday);
+    const zodiac = getZodiac(f.birthday);
+    const tags = (f.tags||'').split(/[,，]/).map(s=>s.trim()).filter(Boolean);
+    return `<div class="card" onclick="openDetail('${f.id}')">
+      <div class="card-head">
+        ${avatarHTML(f)}
+        <div class="card-info">
+          <h3>${esc(f.name)}</h3>
+          <div class="sub">${f.nickname?esc(f.nickname)+' · ':''}${zodiac?esc(zodiac)+'座':''}${age!=null?' · '+age+'岁':''}</div>
+        </div>
+        ${stickerHTML(f)}
+      </div>
+      ${f.catchphrase?`<div style="font-size:13px;color:var(--text-2);font-style:italic;margin:-6px 0 10px">"${esc(f.catchphrase)}"</div>`:''}
+      <div class="tag-row">${tags.slice(0,5).map(t=>`<span class="tag">${esc(t)}</span>`).join('')}</div>
+      <div class="card-meta">
+        ${f.phone?`<span>📞 ${esc(f.phone)}</span>`:''}
+        ${f.birthday?`<span class="${d!==null&&d<=7?'birthday-soon':''}">🎂 ${d===0?'今天！':d+'天后'}</span>`:''}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+/* ---------- 图片处理 ---------- */
+let tempPhoto = '', tempSticker = '';
+
+function compressImage(file, maxSize, cb) {
+  const reader = new FileReader();
+  reader.onload = e => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      let { width, height } = img;
+      if (width > height && width > maxSize) { height *= maxSize/width; width = maxSize; }
+      else if (height > maxSize) { width *= maxSize/height; height = maxSize; }
+      canvas.width = width; canvas.height = height;
+      canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+      cb(canvas.toDataURL('image/jpeg', 0.75));
+    };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+function onPhotoPick(e) {
+  const file = e.target.files[0]; if (!file) return;
+  compressImage(file, 200, data => {
+    tempPhoto = data;
+    const p = document.getElementById('photoPreview');
+    p.src = data; p.classList.add('show');
+    document.getElementById('photoClearBtn').style.display = 'inline-flex';
+  });
+  e.target.value = '';
+}
+function clearPhoto() {
+  tempPhoto = '';
+  document.getElementById('photoPreview').classList.remove('show');
+  document.getElementById('photoClearBtn').style.display = 'none';
+}
+function onStickerPick(e) {
+  const file = e.target.files[0]; if (!file) return;
+  compressImage(file, 120, data => {
+    tempSticker = data;
+    const p = document.getElementById('stickerPreview');
+    p.src = data; p.classList.add('show');
+    document.getElementById('stickerClearBtn').style.display = 'inline-flex';
+  });
+  e.target.value = '';
+}
+function clearSticker() {
+  tempSticker = '';
+  document.getElementById('stickerPreview').classList.remove('show');
+  document.getElementById('stickerClearBtn').style.display = 'none';
+}
+function avatarHTML(f, sizeClass) {
+  if (f.photo) return `<img class="avatar" src="${f.photo}" alt="">`;
+  return `<div class="avatar" style="background:${colorOf(f.id)}">${esc((f.nickname||f.name).charAt(0))}</div>`;
+}
+function stickerHTML(f) {
+  if (f.sticker) return `<img class="sticker-img" src="${f.sticker}" alt="">`;
+  if (f.emoji) return `<div style="font-size:24px;margin-left:auto">${esc(f.emoji)}</div>`;
+  return '';
+}
+
+/* ---------- 表单 ---------- */
+function openForm(f) {
+  if (currentRole !== 'admin') { alert('访客模式无法编辑，请使用管理员密码登录。'); return; }
+  editingId = f ? f.id : null;
+  document.getElementById('formTitle').textContent = f ? '编辑档案' : '新建朋友档案';
+  document.getElementById('fId').value = f ? f.id : '';
+  document.getElementById('fName').value = f ? f.name : '';
+  document.getElementById('fNickname').value = f ? (f.nickname||'') : '';
+  document.getElementById('fBirthday').value = f ? (f.birthday||'') : '';
+  document.getElementById('fPhone').value = f ? (f.phone||'') : '';
+  document.getElementById('fTags').value = f ? (f.tags||'') : '';
+  document.getElementById('fEmoji').value = f ? (f.emoji||'') : '';
+  document.getElementById('fCatchphrase').value = f ? (f.catchphrase||'') : '';
+  document.getElementById('fQuote').value = f ? (f.quote||'') : '';
+  document.getElementById('fDislike').value = f ? (f.dislike||'') : '';
+  document.getElementById('fNote').value = f ? (f.note||'') : '';
+  tempPhoto = f ? (f.photo||'') : '';
+  tempSticker = f ? (f.sticker||'') : '';
+  const pp = document.getElementById('photoPreview');
+  pp.src = tempPhoto; pp.classList.toggle('show', !!tempPhoto);
+  document.getElementById('photoClearBtn').style.display = tempPhoto ? 'inline-flex' : 'none';
+  const sp = document.getElementById('stickerPreview');
+  sp.src = tempSticker; sp.classList.toggle('show', !!tempSticker);
+  document.getElementById('stickerClearBtn').style.display = tempSticker ? 'inline-flex' : 'none';
+  document.getElementById('formMask').classList.add('show');
+}
+function closeForm(){ document.getElementById('formMask').classList.remove('show'); }
+
+function saveFriend(e) {
+  e.preventDefault();
+  if (currentRole !== 'admin') { alert('访客模式无法编辑。'); return; }
+  const data = {
+    name: document.getElementById('fName').value.trim(),
+    nickname: document.getElementById('fNickname').value.trim(),
+    birthday: document.getElementById('fBirthday').value,
+    phone: document.getElementById('fPhone').value.trim(),
+    tags: document.getElementById('fTags').value.trim(),
+    emoji: document.getElementById('fEmoji').value.trim(),
+    catchphrase: document.getElementById('fCatchphrase').value.trim(),
+    quote: document.getElementById('fQuote').value.trim(),
+    dislike: document.getElementById('fDislike').value.trim(),
+    note: document.getElementById('fNote').value.trim(),
+    photo: tempPhoto,
+    sticker: tempSticker,
+  };
+  if (!data.name) return;
+  if (editingId) {
+    const f = friends.find(x=>x.id===editingId);
+    if (f) Object.assign(f, data);
+  } else {
+    friends.push({ id: uid(), created: Date.now(), ...data });
+  }
+  closeForm(); render();
+  persist(); // 后台同步本地+云端
+}
+
+/* ---------- 详情 ---------- */
+function openDetail(id) {
+  const f = friends.find(x=>x.id===id);
+  if (!f) return;
+  const d = daysToBirthday(f.birthday);
+  const age = getAge(f.birthday);
+  const zodiac = getZodiac(f.birthday);
+  const tags = (f.tags||'').split(/[,，]/).map(s=>s.trim()).filter(Boolean);
+  const isAdmin = currentRole === 'admin';
+  document.getElementById('detailContent').innerHTML = `
+    <div class="detail-head">
+      ${avatarHTML(f)}
+      <div>
+        <h2>${esc(f.name)}${age!=null?` <span style="font-size:14px;color:var(--text-3);font-weight:500">${age}岁</span>`:''}</h2>
+        ${f.nickname?`<div style="color:var(--text-3);font-size:13px">昵称：${esc(f.nickname)}</div>`:''}
+      </div>
+    </div>
+    ${f.birthday?`<div class="detail-row"><span class="k">生日</span>${esc(f.birthday)}${zodiac?' · '+esc(zodiac)+'座':''}${d!==null?` · ${d===0?'就是今天！🎉':d+'天后'}`:''}</div>`:''}
+    ${f.phone?`<div class="detail-row"><span class="k">电话</span><a href="tel:${esc(f.phone)}">${esc(f.phone)}</a></div>`:''}
+    ${tags.length?`<div class="detail-row"><span class="k">爱好</span>${tags.map(t=>`<span class="tag">${esc(t)}</span>`).join('')}</div>`:''}
+    ${f.emoji?`<div class="detail-row"><span class="k">表情包</span><span style="font-size:20px">${esc(f.emoji)}</span></div>`:''}
+    ${f.sticker?`<div class="detail-row"><span class="k">表情图</span><img src="${f.sticker}" style="width:64px;height:64px;object-fit:contain;border-radius:8px;vertical-align:middle"></div>`:''}
+    ${f.catchphrase?`<div class="detail-row"><span class="k">口头禅</span>"${esc(f.catchphrase)}"</div>`:''}
+    ${f.quote?`<div class="detail-row"><span class="k">最爱的话</span><i>${esc(f.quote)}</i></div>`:''}
+    ${f.dislike?`<div class="detail-row"><span class="k">⚠️ 雷区</span><span style="color:var(--danger)">${esc(f.dislike).replace(/\n/g,'<br>')}</span></div>`:''}
+    ${f.note?`<div class="detail-row"><span class="k">备注</span>${esc(f.note).replace(/\n/g,'<br>')}</div>`:''}
+    <div class="modal-actions">
+      ${isAdmin?`<button class="btn btn-danger btn-sm" onclick="removeFriend('${f.id}')">删除</button>`:''}
+      <button class="btn btn-ghost btn-sm" onclick="closeDetail()">关闭</button>
+      ${isAdmin?`<button class="btn btn-primary btn-sm" onclick="editFromDetail('${f.id}')">编辑</button>`:''}
+    </div>`;
+  document.getElementById('detailMask').classList.add('show');
+}
+function closeDetail(){ document.getElementById('detailMask').classList.remove('show'); }
+function editFromDetail(id){ closeDetail(); openForm(friends.find(x=>x.id===id)); }
+function removeFriend(id){
+  if (currentRole !== 'admin') { alert('访客模式无法删除。'); return; }
+  const f = friends.find(x=>x.id===id);
+  if (!f) return;
+  if (!confirm(`确定要删除「${f.name}」的档案吗？此操作不可恢复。`)) return;
+  friends = friends.filter(x=>x.id!==id);
+  closeDetail(); render();
+  try { localStorage.setItem(STORE_KEY, JSON.stringify(friends)); } catch(e){}
+  dbDelete(id); // 后台从云端删除
+}
+
+/* ---------- 事件 ---------- */
+document.getElementById('searchInput').addEventListener('input', render);
+document.getElementById('sortSelect').addEventListener('change', render);
+document.getElementById('formMask').addEventListener('click', e=>{ if(e.target.id==='formMask') closeForm(); });
+document.getElementById('detailMask').addEventListener('click', e=>{ if(e.target.id==='detailMask') closeDetail(); });
+
+// 启动：先用本地缓存秒开，再从云端拉取最新数据
+const savedRole = sessionStorage.getItem('fa_role');
+if (savedRole === 'admin' || savedRole === 'guest') {
+  currentRole = savedRole;
+  unlock();
+} else {
+  showLock();
+}
+syncFromCloud();
+</script>
+</body>
+</html>
