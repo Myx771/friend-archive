@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>朋友档案馆</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
 <style>
   :root {
     --bg: #f8f9fc;
@@ -272,6 +273,45 @@
   .upload-preview.show { display: block; }
   img.avatar { object-fit: cover; border: none; }
   .sticker-img { width: 36px; height: 36px; object-fit: contain; margin-left: auto; }
+
+  /* ===== 星空视图（3D） ===== */
+  #skyView { max-width: 1120px; margin: 18px auto 80px; padding: 0 24px; display: none; }
+  .sky-inner {
+    position: relative; height: 72vh; min-height: 520px;
+    border-radius: var(--radius-lg); overflow: hidden; cursor: grab;
+    box-shadow: var(--shadow-lg), inset 0 0 140px rgba(0,0,0,.55);
+    background:
+      radial-gradient(ellipse 60% 45% at 72% 18%, rgba(124,58,237,.28), transparent 70%),
+      radial-gradient(ellipse 55% 40% at 22% 78%, rgba(37,99,235,.22), transparent 70%),
+      linear-gradient(160deg, #131a3a 0%, #0b1029 45%, #05070f 100%);
+  }
+  .sky-inner:active { cursor: grabbing; }
+  .sky-inner canvas { display: block; }
+  .star-tip {
+    position: absolute; bottom: calc(100% + 10px); left: 50%;
+    transform: translateX(-50%) translateY(4px);
+    background: rgba(10,14,35,.92); border: 1px solid rgba(255,255,255,.14);
+    border-radius: 10px; padding: 8px 12px; font-size: 12px; color: #e5e9ff;
+    white-space: nowrap; opacity: 0; pointer-events: none; transition: var(--transition); z-index: 7;
+  }
+  .star3d-label {
+    position: absolute; top: 0; left: 0; z-index: 3;
+    text-align: center; cursor: pointer; user-select: none; will-change: transform;
+  }
+  .star3d-label .n {
+    font-size: 12px; color: rgba(235,239,255,.95); letter-spacing: .5px;
+    text-shadow: 0 0 8px rgba(0,0,0,.95); white-space: nowrap;
+  }
+  .star3d-label.dim { opacity: .12; }
+  .star3d-label:hover .star-tip { opacity: 1; transform: translateX(-50%) translateY(0); }
+  .sky-hint {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    color: rgba(200,208,255,.55); font-size: 14px; letter-spacing: 1px; text-align: center; padding: 20px; z-index: 4;
+  }
+  .sky-help {
+    position: absolute; bottom: 12px; right: 16px; z-index: 4;
+    font-size: 11px; color: rgba(200,208,255,.45); letter-spacing: .5px; pointer-events: none;
+  }
 </style>
 </head>
 <body>
@@ -300,6 +340,7 @@
     </div>
     <div style="display:flex;gap:10px;align-items:center">
       <span class="stat-pill" id="roleBadge" style="display:none"></span>
+      <button class="btn btn-ghost btn-sm" id="viewToggle" onclick="toggleView()" title="切换视图">⭐ 星空</button>
       <button class="btn btn-ghost btn-sm" id="shareBtn" onclick="exportShare()" title="导出分享版">📤 分享</button>
       <button class="btn btn-ghost btn-sm" onclick="lockNow()" title="锁定">🔒 锁定</button>
       <button class="btn btn-primary" id="addBtn" onclick="openForm()">＋ 新建档案</button>
@@ -322,6 +363,11 @@
 
 <div class="stats" id="statsBar"></div>
 <div class="grid" id="cardGrid"></div>
+
+<!-- 星空视图 -->
+<div id="skyView">
+  <div class="sky-inner" id="skyInner"></div>
+</div>
 
 <!-- 新建/编辑 表单弹窗 -->
 <div class="modal-mask" id="formMask">
@@ -383,6 +429,19 @@
       <div class="form-group">
         <label>备注</label>
         <textarea id="fNote" placeholder="想记住的任何事情…"></textarea>
+      </div>
+      <div class="form-group">
+        <label>访客可见范围（不勾选 = 仅管理员可见）</label>
+        <div style="display:flex;flex-wrap:wrap;gap:8px 16px;font-size:13px;color:var(--text-2)">
+          <label style="display:flex;align-items:center;gap:4px;font-weight:400"><input type="checkbox" class="vis-chk" data-k="phone" checked> 电话</label>
+          <label style="display:flex;align-items:center;gap:4px;font-weight:400"><input type="checkbox" class="vis-chk" data-k="birthday" checked> 生日</label>
+          <label style="display:flex;align-items:center;gap:4px;font-weight:400"><input type="checkbox" class="vis-chk" data-k="tags" checked> 爱好标签</label>
+          <label style="display:flex;align-items:center;gap:4px;font-weight:400"><input type="checkbox" class="vis-chk" data-k="emoji" checked> 表情包</label>
+          <label style="display:flex;align-items:center;gap:4px;font-weight:400"><input type="checkbox" class="vis-chk" data-k="catchphrase" checked> 口头禅</label>
+          <label style="display:flex;align-items:center;gap:4px;font-weight:400"><input type="checkbox" class="vis-chk" data-k="quote" checked> 最喜欢的话</label>
+          <label style="display:flex;align-items:center;gap:4px;font-weight:400"><input type="checkbox" class="vis-chk" data-k="dislike" checked> 雷区</label>
+          <label style="display:flex;align-items:center;gap:4px;font-weight:400"><input type="checkbox" class="vis-chk" data-k="note" checked> 备注</label>
+        </div>
       </div>
       <div class="modal-actions">
         <button type="button" class="btn btn-ghost" onclick="closeForm()">取消</button>
@@ -483,6 +542,20 @@ const COLORS = ['#4f46e5','#7c3aed','#2563eb','#059669','#d97706','#dc2626','#08
 let friends = loadLocal();
 let editingId = null;
 
+/* ---------- 视图切换（列表 / 星空） ---------- */
+let viewMode = 'list';
+try { viewMode = localStorage.getItem('fa_view') || 'list'; } catch(e){}
+function toggleView() {
+  viewMode = viewMode === 'sky' ? 'list' : 'sky';
+  try { localStorage.setItem('fa_view', viewMode); } catch(e){}
+  applyViewMode(); render();
+}
+function applyViewMode() {
+  document.getElementById('viewToggle').textContent = viewMode === 'sky' ? '📋 列表' : '⭐ 星空';
+  document.getElementById('cardGrid').style.display = viewMode === 'sky' ? 'none' : 'grid';
+  document.getElementById('skyView').style.display = viewMode === 'sky' ? 'block' : 'none';
+}
+
 function loadLocal() {
   // 本地缓存（秒开）→ 分享版内置数据 → 空
   try {
@@ -557,6 +630,12 @@ function colorOf(id) {
   return COLORS[h % COLORS.length];
 }
 function esc(s){ const d=document.createElement('div'); d.textContent=s==null?'':s; return d.innerHTML; }
+// 字段级可见性：管理员全可见；访客看 f.visible[key]（缺省视为可见，兼容旧数据）
+function canSee(f, k) {
+  if (currentRole === 'admin') return true;
+  if (!f || !f.visible) return true;
+  return f.visible[k] !== false;
+}
 
 /* ---------- 工具 ---------- */
 function getZodiac(b) {
@@ -631,8 +710,7 @@ function render() {
       <div class="big">📭</div>
       <p>${emptyTip}</p>
     </div>`;
-    return;
-  }
+  } else {
   grid.innerHTML = list.map(f=>{
     const d = daysToBirthday(f.birthday);
     const age = getAge(f.birthday);
@@ -647,14 +725,233 @@ function render() {
         </div>
         ${stickerHTML(f)}
       </div>
-      ${f.catchphrase?`<div style="font-size:13px;color:var(--text-2);font-style:italic;margin:-6px 0 10px">"${esc(f.catchphrase)}"</div>`:''}
-      <div class="tag-row">${tags.slice(0,5).map(t=>`<span class="tag">${esc(t)}</span>`).join('')}</div>
+      ${f.catchphrase&&canSee(f,'catchphrase')?`<div style="font-size:13px;color:var(--text-2);font-style:italic;margin:-6px 0 10px">"${esc(f.catchphrase)}"</div>`:''}
+      <div class="tag-row">${canSee(f,'tags')?tags.slice(0,5).map(t=>`<span class="tag">${esc(t)}</span>`).join(''):''}</div>
       <div class="card-meta">
-        ${f.phone?`<span>📞 ${esc(f.phone)}</span>`:''}
-        ${f.birthday?`<span class="${d!==null&&d<=7?'birthday-soon':''}">🎂 ${d===0?'今天！':d+'天后'}</span>`:''}
+        ${f.phone&&canSee(f,'phone')?`<span>📞 ${esc(f.phone)}</span>`:''}
+        ${f.birthday&&canSee(f,'birthday')?`<span class="${d!==null&&d<=7?'birthday-soon':''}">🎂 ${d===0?'今天！':d+'天后'}</span>`:''}
       </div>
     </div>`;
   }).join('');
+  }
+
+  // 星空
+  renderSky(list, kw);
+}
+
+/* ---------- 星空视图（3D, Three.js） ---------- */
+// 用 id 做稳定伪随机，保证同一颗星星位置不变
+function seedOf(id) {
+  let h = 2166136261;
+  for (const c of String(id)) { h ^= c.charCodeAt(0); h = Math.imul(h, 16777619); }
+  return (h >>> 0) / 4294967296;
+}
+
+let sky3d = null;          // {scene,camera,renderer,group,sprites[],labelLayer}
+const skyRot = { x: 0.25, y: 0 };
+const skyDrag = { on: false, x: 0, y: 0, moved: false };
+let skyZoom = 220;
+const texCache = {};
+
+function glowTexture(color) {
+  if (texCache[color]) return texCache[color];
+  const c = document.createElement('canvas'); c.width = c.height = 128;
+  const g = c.getContext('2d');
+  const grad = g.createRadialGradient(64,64,0,64,64,64);
+  grad.addColorStop(0, '#ffffff');
+  grad.addColorStop(0.25, color);
+  grad.addColorStop(0.6, color + '55');
+  grad.addColorStop(1, 'rgba(0,0,0,0)');
+  g.fillStyle = grad; g.fillRect(0,0,128,128);
+  const t = new THREE.CanvasTexture(c);
+  texCache[color] = t;
+  return t;
+}
+
+function initSky3D(container) {
+  const w = container.clientWidth || 800, h = container.clientHeight || 520;
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(55, w/h, 0.1, 2000);
+  camera.position.z = skyZoom;
+  const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.setSize(w, h);
+  container.appendChild(renderer.domElement);
+
+  const group = new THREE.Group();
+  group.rotation.x = skyRot.x;
+  scene.add(group);
+
+  // 背景星尘（1600 颗随机分布的微粒）
+  const N = 1600, pos = new Float32Array(N*3);
+  for (let i = 0; i < N; i++) {
+    const r = 280 + Math.random()*320;
+    const th = Math.random()*Math.PI*2, ph = Math.acos(Math.random()*2-1);
+    pos[i*3]   = r*Math.sin(ph)*Math.cos(th);
+    pos[i*3+1] = r*Math.cos(ph);
+    pos[i*3+2] = r*Math.sin(ph)*Math.sin(th);
+  }
+  const bgGeo = new THREE.BufferGeometry();
+  bgGeo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  group.add(new THREE.Points(bgGeo, new THREE.PointsMaterial({
+    color: 0xcdd6ff, size: 1.6, transparent: true, opacity: .75, sizeAttenuation: true
+  })));
+
+  // 标签层
+  const labelLayer = document.createElement('div');
+  labelLayer.style.cssText = 'position:absolute;inset:0;overflow:hidden;pointer-events:none';
+  container.appendChild(labelLayer);
+
+  // 拖拽旋转
+  const cv = renderer.domElement;
+  cv.style.touchAction = 'none';
+  cv.addEventListener('pointerdown', e => {
+    skyDrag.on = true; skyDrag.moved = false;
+    skyDrag.x = e.clientX; skyDrag.y = e.clientY;
+    cv.setPointerCapture(e.pointerId);
+  });
+  cv.addEventListener('pointermove', e => {
+    if (!skyDrag.on) return;
+    const dx = e.clientX - skyDrag.x, dy = e.clientY - skyDrag.y;
+    if (Math.abs(dx) + Math.abs(dy) > 4) skyDrag.moved = true;
+    skyRot.y += dx * 0.005;
+    skyRot.x = Math.max(-1.2, Math.min(1.2, skyRot.x + dy * 0.005));
+    skyDrag.x = e.clientX; skyDrag.y = e.clientY;
+  });
+  cv.addEventListener('pointerup', e => {
+    skyDrag.on = false;
+    if (!skyDrag.moved) skyPick(e); // 视为点击 → 拾取星星
+  });
+  cv.addEventListener('wheel', e => {
+    e.preventDefault();
+    skyZoom = Math.max(120, Math.min(400, skyZoom + e.deltaY * 0.15));
+  }, { passive: false });
+
+  sky3d = { scene, camera, renderer, group, sprites: [], labelLayer, container };
+  requestAnimationFrame(skyTick);
+}
+
+function skyPick(e) {
+  if (!sky3d) return;
+  const r = sky3d.renderer.domElement.getBoundingClientRect();
+  const m = new THREE.Vector2(
+    ((e.clientX - r.left) / r.width) * 2 - 1,
+    -((e.clientY - r.top) / r.height) * 2 + 1
+  );
+  const ray = new THREE.Raycaster();
+  ray.setFromCamera(m, sky3d.camera);
+  const hits = ray.intersectObjects(sky3d.sprites);
+  if (hits.length) openDetail(hits[0].object.userData.fid);
+}
+
+function skyTick() {
+  requestAnimationFrame(skyTick);
+  if (!sky3d) return;
+  const { scene, camera, renderer, group, sprites, labelLayer, container } = sky3d;
+  if (viewMode !== 'sky' || !container.offsetParent) return; // 隐藏时不渲染
+
+  // 尺寸自适应
+  const w = container.clientWidth, h = container.clientHeight;
+  const cv = renderer.domElement;
+  if (cv.width !== Math.floor(w * renderer.getPixelRatio()) || cv.height !== Math.floor(h * renderer.getPixelRatio())) {
+    renderer.setSize(w, h);
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+  }
+
+  if (!skyDrag.on) skyRot.y += 0.0007; // 缓慢自转
+  group.rotation.y = skyRot.y;
+  group.rotation.x = skyRot.x;
+  camera.position.z = skyZoom;
+
+  const t = performance.now() / 1000;
+  const v = new THREE.Vector3();
+  for (const s of sprites) {
+    const u = s.userData;
+    // 呼吸脉动
+    const sc = u.base * (1 + (u.soon ? 0.3 : 0.15) * Math.sin(t * (u.soon ? 4.5 : 1.8) + u.phase));
+    s.scale.set(sc, sc, 1);
+    // 标签跟随投影
+    const lb = u.label;
+    s.getWorldPosition(v).project(camera);
+    if (v.z > 1 || v.z < -1) { lb.style.display = 'none'; continue; }
+    lb.style.display = 'block';
+    const x = (v.x * .5 + .5) * w, y = (-v.y * .5 + .5) * h;
+    lb.style.transform = `translate(${x.toFixed(1)}px,${(y + u.base * 0.5 + 6).toFixed(1)}px) translateX(-50%)`;
+  }
+  renderer.render(scene, camera);
+}
+
+function renderSky(list, kw) {
+  const container = document.getElementById('skyInner');
+  if (!container) return;
+
+  if (typeof THREE === 'undefined') {
+    container.innerHTML = '<div class="sky-hint">3D 引擎加载失败<br>请检查网络后刷新重试</div>';
+    return;
+  }
+  if (!sky3d) initSky3D(container);
+
+  // 清空旧星星与标签
+  for (const s of sky3d.sprites) {
+    sky3d.group.remove(s);
+    s.material.dispose();
+  }
+  sky3d.sprites = [];
+  sky3d.labelLayer.innerHTML = '';
+  container.querySelectorAll('.sky-hint,.sky-help').forEach(e => e.remove());
+
+  if (!friends.length) {
+    container.insertAdjacentHTML('beforeend', '<div class="sky-hint">这片夜空还没有星星<br>点击右上角「新建档案」点亮第一颗 ⭐</div>');
+    return;
+  }
+  container.insertAdjacentHTML('beforeend', '<div class="sky-help">拖动旋转 · 滚轮缩放 · 点击星星查看档案</div>');
+
+  const matchedIds = new Set(list.map(f => f.id));
+  for (const f of friends) {
+    const d = daysToBirthday(f.birthday);
+    const soon = d !== null && d <= 7;
+    const color = soon ? '#fbbf24' : colorOf(f.id);
+    const dimmed = kw && !matchedIds.has(f.id);
+
+    // 球面稳定分布
+    const th = seedOf(f.id) * Math.PI * 2;
+    const ph = Math.acos(seedOf(f.id + 'y') * 2 - 1);
+    const r = 70 + seedOf(f.id + 'r') * 30;
+
+    const mat = new THREE.SpriteMaterial({
+      map: glowTexture(color), transparent: true,
+      depthWrite: false, opacity: dimmed ? 0.12 : 1
+    });
+    const sp = new THREE.Sprite(mat);
+    sp.position.set(
+      r * Math.sin(ph) * Math.cos(th),
+      r * Math.cos(ph) * 0.85,
+      r * Math.sin(ph) * Math.sin(th)
+    );
+    const base = 13 + seedOf(f.id + 's') * 9 + (soon ? 4 : 0);
+    sp.scale.set(base, base, 1);
+    sp.userData = {
+      fid: f.id, base, soon,
+      phase: seedOf(f.id + 'p') * Math.PI * 2,
+      label: null
+    };
+    sky3d.group.add(sp);
+    sky3d.sprites.push(sp);
+
+    // HTML 标签（名字 + 悬浮提示）
+    const tipLines = [];
+    if (f.catchphrase && canSee(f,'catchphrase')) tipLines.push(`💬 "${esc(f.catchphrase)}"`);
+    if (f.birthday && canSee(f,'birthday')) tipLines.push(`🎂 ${d === 0 ? '今天生日！' : d + ' 天后生日'}`);
+    if (f.tags && canSee(f,'tags')) tipLines.push(`🏷️ ${esc(f.tags)}`);
+    const lb = document.createElement('div');
+    lb.className = 'star3d-label' + (dimmed ? ' dim' : '');
+    lb.style.pointerEvents = 'auto';
+    lb.innerHTML = `<span class="n">${esc(f.name)}</span><div class="star-tip">${tipLines.join('<br>') || '点击查看档案'}</div>`;
+    lb.onclick = () => openDetail(f.id);
+    sky3d.labelLayer.appendChild(lb);
+    sp.userData.label = lb;
+  }
 }
 
 /* ---------- 图片处理 ---------- */
@@ -713,7 +1010,7 @@ function avatarHTML(f, sizeClass) {
 }
 function stickerHTML(f) {
   if (f.sticker) return `<img class="sticker-img" src="${f.sticker}" alt="">`;
-  if (f.emoji) return `<div style="font-size:24px;margin-left:auto">${esc(f.emoji)}</div>`;
+  if (f.emoji && canSee(f,'emoji')) return `<div style="font-size:24px;margin-left:auto">${esc(f.emoji)}</div>`;
   return '';
 }
 
@@ -733,6 +1030,9 @@ function openForm(f) {
   document.getElementById('fQuote').value = f ? (f.quote||'') : '';
   document.getElementById('fDislike').value = f ? (f.dislike||'') : '';
   document.getElementById('fNote').value = f ? (f.note||'') : '';
+  // 回填可见性勾选（旧数据缺省全可见）
+  const vis = f && f.visible ? f.visible : {};
+  document.querySelectorAll('.vis-chk').forEach(c => { c.checked = vis[c.dataset.k] !== false; });
   tempPhoto = f ? (f.photo||'') : '';
   tempSticker = f ? (f.sticker||'') : '';
   const pp = document.getElementById('photoPreview');
@@ -762,6 +1062,10 @@ function saveFriend(e) {
     photo: tempPhoto,
     sticker: tempSticker,
   };
+  // 收集访客可见范围
+  const visible = {};
+  document.querySelectorAll('.vis-chk').forEach(c => { visible[c.dataset.k] = c.checked; });
+  data.visible = visible;
   if (!data.name) return;
   if (editingId) {
     const f = friends.find(x=>x.id===editingId);
@@ -790,15 +1094,16 @@ function openDetail(id) {
         ${f.nickname?`<div style="color:var(--text-3);font-size:13px">昵称：${esc(f.nickname)}</div>`:''}
       </div>
     </div>
-    ${f.birthday?`<div class="detail-row"><span class="k">生日</span>${esc(f.birthday)}${zodiac?' · '+esc(zodiac)+'座':''}${d!==null?` · ${d===0?'就是今天！🎉':d+'天后'}`:''}</div>`:''}
-    ${f.phone?`<div class="detail-row"><span class="k">电话</span><a href="tel:${esc(f.phone)}">${esc(f.phone)}</a></div>`:''}
-    ${tags.length?`<div class="detail-row"><span class="k">爱好</span>${tags.map(t=>`<span class="tag">${esc(t)}</span>`).join('')}</div>`:''}
-    ${f.emoji?`<div class="detail-row"><span class="k">表情包</span><span style="font-size:20px">${esc(f.emoji)}</span></div>`:''}
+    ${f.birthday&&canSee(f,'birthday')?`<div class="detail-row"><span class="k">生日</span>${esc(f.birthday)}${zodiac?' · '+esc(zodiac)+'座':''}${d!==null?` · ${d===0?'就是今天！🎉':d+'天后'}`:''}</div>`:''}
+    ${f.phone&&canSee(f,'phone')?`<div class="detail-row"><span class="k">电话</span><a href="tel:${esc(f.phone)}">${esc(f.phone)}</a></div>`:''}
+    ${tags.length&&canSee(f,'tags')?`<div class="detail-row"><span class="k">爱好</span>${tags.map(t=>`<span class="tag">${esc(t)}</span>`).join('')}</div>`:''}
+    ${f.emoji&&canSee(f,'emoji')?`<div class="detail-row"><span class="k">表情包</span><span style="font-size:20px">${esc(f.emoji)}</span></div>`:''}
     ${f.sticker?`<div class="detail-row"><span class="k">表情图</span><img src="${f.sticker}" style="width:64px;height:64px;object-fit:contain;border-radius:8px;vertical-align:middle"></div>`:''}
-    ${f.catchphrase?`<div class="detail-row"><span class="k">口头禅</span>"${esc(f.catchphrase)}"</div>`:''}
-    ${f.quote?`<div class="detail-row"><span class="k">最爱的话</span><i>${esc(f.quote)}</i></div>`:''}
-    ${f.dislike?`<div class="detail-row"><span class="k">⚠️ 雷区</span><span style="color:var(--danger)">${esc(f.dislike).replace(/\n/g,'<br>')}</span></div>`:''}
-    ${f.note?`<div class="detail-row"><span class="k">备注</span>${esc(f.note).replace(/\n/g,'<br>')}</div>`:''}
+    ${f.catchphrase&&canSee(f,'catchphrase')?`<div class="detail-row"><span class="k">口头禅</span>"${esc(f.catchphrase)}"</div>`:''}
+    ${f.quote&&canSee(f,'quote')?`<div class="detail-row"><span class="k">最爱的话</span><i>${esc(f.quote)}</i></div>`:''}
+    ${f.dislike&&canSee(f,'dislike')?`<div class="detail-row"><span class="k">⚠️ 雷区</span><span style="color:var(--danger)">${esc(f.dislike).replace(/\n/g,'<br>')}</span></div>`:''}
+    ${f.note&&canSee(f,'note')?`<div class="detail-row"><span class="k">备注</span>${esc(f.note).replace(/\n/g,'<br>')}</div>`:''}
+    ${isAdmin?`<div class="detail-row" style="border-top:1px dashed #e5e7eb;margin-top:6px;padding-top:12px;font-size:12px;color:var(--text-3)">🔒 访客可见：${(()=>{const K={phone:'电话',birthday:'生日',tags:'爱好',emoji:'表情包',catchphrase:'口头禅',quote:'最爱的话',dislike:'雷区',note:'备注'};const v=f.visible||{};const off=Object.keys(K).filter(k=>v[k]===false);return off.length?'隐藏 '+off.map(k=>K[k]).join('、'):'全部可见';})()}</div>`:''}
     <div class="modal-actions">
       ${isAdmin?`<button class="btn btn-danger btn-sm" onclick="removeFriend('${f.id}')">删除</button>`:''}
       <button class="btn btn-ghost btn-sm" onclick="closeDetail()">关闭</button>
@@ -833,6 +1138,7 @@ if (savedRole === 'admin' || savedRole === 'guest') {
 } else {
   showLock();
 }
+applyViewMode();
 syncFromCloud();
 </script>
 </body>
