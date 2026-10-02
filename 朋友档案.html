@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>朋友档案馆</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <style>
   :root {
     --bg: #f8f9fc;
@@ -273,68 +274,43 @@
   img.avatar { object-fit: cover; border: none; }
   .sticker-img { width: 36px; height: 36px; object-fit: contain; margin-left: auto; }
 
-  /* ===== 星空视图 ===== */
+  /* ===== 星空视图（3D） ===== */
   #skyView { max-width: 1120px; margin: 18px auto 80px; padding: 0 24px; display: none; }
   .sky-inner {
     position: relative; height: 72vh; min-height: 520px;
-    border-radius: var(--radius-lg); overflow: hidden;
+    border-radius: var(--radius-lg); overflow: hidden; cursor: grab;
     box-shadow: var(--shadow-lg), inset 0 0 140px rgba(0,0,0,.55);
     background:
       radial-gradient(ellipse 60% 45% at 72% 18%, rgba(124,58,237,.28), transparent 70%),
       radial-gradient(ellipse 55% 40% at 22% 78%, rgba(37,99,235,.22), transparent 70%),
       linear-gradient(160deg, #131a3a 0%, #0b1029 45%, #05070f 100%);
   }
-  .bg-star {
-    position: absolute; border-radius: 50%; background: #fff; opacity: .5;
-    animation: twinkle 4s ease-in-out infinite;
-  }
-  @keyframes twinkle { 0%,100% { opacity:.18; transform:scale(.7); } 50% { opacity:.85; transform:scale(1.1); } }
-
-  .star {
-    position: absolute; width: var(--s); height: var(--s); border-radius: 50%;
-    background: var(--c); cursor: pointer; z-index: 2;
-    box-shadow: 0 0 8px var(--c), 0 0 22px var(--c), 0 0 46px var(--c);
-    animation: starPulse 3.4s ease-in-out infinite;
-    transition: opacity .3s;
-  }
-  .star::before {
-    content: ''; position: absolute; inset: -3px; border-radius: 50%;
-    border: 1px solid rgba(255,255,255,.35);
-  }
-  @keyframes starPulse {
-    0%,100% { transform: scale(1); filter: brightness(1); }
-    50% { transform: scale(1.18); filter: brightness(1.25); }
-  }
-  .star:hover { animation-play-state: paused; transform: scale(1.6); z-index: 6; }
-  .star-name {
-    position: absolute; top: calc(100% + 8px); left: 50%; transform: translateX(-50%);
-    font-size: 12px; color: rgba(235,239,255,.92); white-space: nowrap; letter-spacing: .5px;
-    text-shadow: 0 0 8px rgba(0,0,0,.9); pointer-events: none;
-  }
+  .sky-inner:active { cursor: grabbing; }
+  .sky-inner canvas { display: block; }
   .star-tip {
-    position: absolute; bottom: calc(100% + 12px); left: 50%;
+    position: absolute; bottom: calc(100% + 10px); left: 50%;
     transform: translateX(-50%) translateY(4px);
     background: rgba(10,14,35,.92); border: 1px solid rgba(255,255,255,.14);
     border-radius: 10px; padding: 8px 12px; font-size: 12px; color: #e5e9ff;
     white-space: nowrap; opacity: 0; pointer-events: none; transition: var(--transition); z-index: 7;
   }
-  .star:hover .star-tip { opacity: 1; transform: translateX(-50%) translateY(0); }
-  .star-bday { --c: #fbbf24; animation-duration: 1.6s; }
-  .star-dim { opacity: .12; }
+  .star3d-label {
+    position: absolute; top: 0; left: 0; z-index: 3;
+    text-align: center; cursor: pointer; user-select: none; will-change: transform;
+  }
+  .star3d-label .n {
+    font-size: 12px; color: rgba(235,239,255,.95); letter-spacing: .5px;
+    text-shadow: 0 0 8px rgba(0,0,0,.95); white-space: nowrap;
+  }
+  .star3d-label.dim { opacity: .12; }
+  .star3d-label:hover .star-tip { opacity: 1; transform: translateX(-50%) translateY(0); }
   .sky-hint {
     position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
-    color: rgba(200,208,255,.55); font-size: 14px; letter-spacing: 1px; text-align: center; padding: 20px;
+    color: rgba(200,208,255,.55); font-size: 14px; letter-spacing: 1px; text-align: center; padding: 20px; z-index: 4;
   }
-  .shooting-star {
-    position: absolute; top: 14%; left: 78%; width: 130px; height: 2px; border-radius: 2px;
-    background: linear-gradient(90deg, #fff, transparent); opacity: 0;
-    animation: shoot 11s linear infinite;
-  }
-  @keyframes shoot {
-    0%, 70% { opacity: 0; transform: translate(0,0) rotate(-32deg); }
-    72% { opacity: 1; }
-    84% { opacity: 0; transform: translate(-42vw, 24vh) rotate(-32deg); }
-    100% { opacity: 0; }
+  .sky-help {
+    position: absolute; bottom: 12px; right: 16px; z-index: 4;
+    font-size: 11px; color: rgba(200,208,255,.45); letter-spacing: .5px; pointer-events: none;
   }
 </style>
 </head>
@@ -744,7 +720,7 @@ function render() {
   renderSky(list, kw);
 }
 
-/* ---------- 星空视图 ---------- */
+/* ---------- 星空视图（3D, Three.js） ---------- */
 // 用 id 做稳定伪随机，保证同一颗星星位置不变
 function seedOf(id) {
   let h = 2166136261;
@@ -752,52 +728,211 @@ function seedOf(id) {
   return (h >>> 0) / 4294967296;
 }
 
-function renderSky(list, kw) {
-  const sky = document.getElementById('skyInner');
-  if (!sky) return;
+let sky3d = null;          // {scene,camera,renderer,group,sprites[],labelLayer}
+const skyRot = { x: 0.25, y: 0 };
+const skyDrag = { on: false, x: 0, y: 0, moved: false };
+let skyZoom = 220;
+const texCache = {};
 
-  // 背景小星星只生成一次
-  if (!sky.dataset.bgInit) {
-    sky.dataset.bgInit = '1';
-    let bg = '';
-    for (let i = 0; i < 90; i++) {
-      const sz = (Math.random() * 1.6 + 0.6).toFixed(1);
-      bg += `<div class="bg-star" style="left:${(Math.random()*100).toFixed(1)}%;top:${(Math.random()*100).toFixed(1)}%;width:${sz}px;height:${sz}px;animation-delay:${(Math.random()*4).toFixed(1)}s;animation-duration:${(Math.random()*3+3).toFixed(1)}s"></div>`;
-    }
-    bg += '<div class="shooting-star"></div>';
-    sky.innerHTML = bg;
+function glowTexture(color) {
+  if (texCache[color]) return texCache[color];
+  const c = document.createElement('canvas'); c.width = c.height = 128;
+  const g = c.getContext('2d');
+  const grad = g.createRadialGradient(64,64,0,64,64,64);
+  grad.addColorStop(0, '#ffffff');
+  grad.addColorStop(0.25, color);
+  grad.addColorStop(0.6, color + '55');
+  grad.addColorStop(1, 'rgba(0,0,0,0)');
+  g.fillStyle = grad; g.fillRect(0,0,128,128);
+  const t = new THREE.CanvasTexture(c);
+  texCache[color] = t;
+  return t;
+}
+
+function initSky3D(container) {
+  const w = container.clientWidth || 800, h = container.clientHeight || 520;
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(55, w/h, 0.1, 2000);
+  camera.position.z = skyZoom;
+  const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.setSize(w, h);
+  container.appendChild(renderer.domElement);
+
+  const group = new THREE.Group();
+  group.rotation.x = skyRot.x;
+  scene.add(group);
+
+  // 背景星尘（1600 颗随机分布的微粒）
+  const N = 1600, pos = new Float32Array(N*3);
+  for (let i = 0; i < N; i++) {
+    const r = 280 + Math.random()*320;
+    const th = Math.random()*Math.PI*2, ph = Math.acos(Math.random()*2-1);
+    pos[i*3]   = r*Math.sin(ph)*Math.cos(th);
+    pos[i*3+1] = r*Math.cos(ph);
+    pos[i*3+2] = r*Math.sin(ph)*Math.sin(th);
   }
-  // 移除旧的朋友星星
-  sky.querySelectorAll('.star,.sky-hint').forEach(e=>e.remove());
+  const bgGeo = new THREE.BufferGeometry();
+  bgGeo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  group.add(new THREE.Points(bgGeo, new THREE.PointsMaterial({
+    color: 0xcdd6ff, size: 1.6, transparent: true, opacity: .75, sizeAttenuation: true
+  })));
 
-  if (!friends.length) {
-    sky.insertAdjacentHTML('beforeend', `<div class="sky-hint">这片夜空还没有星星<br>点击右上角「新建档案」点亮第一颗 ⭐</div>`);
+  // 标签层
+  const labelLayer = document.createElement('div');
+  labelLayer.style.cssText = 'position:absolute;inset:0;overflow:hidden;pointer-events:none';
+  container.appendChild(labelLayer);
+
+  // 拖拽旋转
+  const cv = renderer.domElement;
+  cv.style.touchAction = 'none';
+  cv.addEventListener('pointerdown', e => {
+    skyDrag.on = true; skyDrag.moved = false;
+    skyDrag.x = e.clientX; skyDrag.y = e.clientY;
+    cv.setPointerCapture(e.pointerId);
+  });
+  cv.addEventListener('pointermove', e => {
+    if (!skyDrag.on) return;
+    const dx = e.clientX - skyDrag.x, dy = e.clientY - skyDrag.y;
+    if (Math.abs(dx) + Math.abs(dy) > 4) skyDrag.moved = true;
+    skyRot.y += dx * 0.005;
+    skyRot.x = Math.max(-1.2, Math.min(1.2, skyRot.x + dy * 0.005));
+    skyDrag.x = e.clientX; skyDrag.y = e.clientY;
+  });
+  cv.addEventListener('pointerup', e => {
+    skyDrag.on = false;
+    if (!skyDrag.moved) skyPick(e); // 视为点击 → 拾取星星
+  });
+  cv.addEventListener('wheel', e => {
+    e.preventDefault();
+    skyZoom = Math.max(120, Math.min(400, skyZoom + e.deltaY * 0.15));
+  }, { passive: false });
+
+  sky3d = { scene, camera, renderer, group, sprites: [], labelLayer, container };
+  requestAnimationFrame(skyTick);
+}
+
+function skyPick(e) {
+  if (!sky3d) return;
+  const r = sky3d.renderer.domElement.getBoundingClientRect();
+  const m = new THREE.Vector2(
+    ((e.clientX - r.left) / r.width) * 2 - 1,
+    -((e.clientY - r.top) / r.height) * 2 + 1
+  );
+  const ray = new THREE.Raycaster();
+  ray.setFromCamera(m, sky3d.camera);
+  const hits = ray.intersectObjects(sky3d.sprites);
+  if (hits.length) openDetail(hits[0].object.userData.fid);
+}
+
+function skyTick() {
+  requestAnimationFrame(skyTick);
+  if (!sky3d) return;
+  const { scene, camera, renderer, group, sprites, labelLayer, container } = sky3d;
+  if (viewMode !== 'sky' || !container.offsetParent) return; // 隐藏时不渲染
+
+  // 尺寸自适应
+  const w = container.clientWidth, h = container.clientHeight;
+  const cv = renderer.domElement;
+  if (cv.width !== Math.floor(w * renderer.getPixelRatio()) || cv.height !== Math.floor(h * renderer.getPixelRatio())) {
+    renderer.setSize(w, h);
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+  }
+
+  if (!skyDrag.on) skyRot.y += 0.0007; // 缓慢自转
+  group.rotation.y = skyRot.y;
+  group.rotation.x = skyRot.x;
+  camera.position.z = skyZoom;
+
+  const t = performance.now() / 1000;
+  const v = new THREE.Vector3();
+  for (const s of sprites) {
+    const u = s.userData;
+    // 呼吸脉动
+    const sc = u.base * (1 + (u.soon ? 0.3 : 0.15) * Math.sin(t * (u.soon ? 4.5 : 1.8) + u.phase));
+    s.scale.set(sc, sc, 1);
+    // 标签跟随投影
+    const lb = u.label;
+    s.getWorldPosition(v).project(camera);
+    if (v.z > 1 || v.z < -1) { lb.style.display = 'none'; continue; }
+    lb.style.display = 'block';
+    const x = (v.x * .5 + .5) * w, y = (-v.y * .5 + .5) * h;
+    lb.style.transform = `translate(${x.toFixed(1)}px,${(y + u.base * 0.5 + 6).toFixed(1)}px) translateX(-50%)`;
+  }
+  renderer.render(scene, camera);
+}
+
+function renderSky(list, kw) {
+  const container = document.getElementById('skyInner');
+  if (!container) return;
+
+  if (typeof THREE === 'undefined') {
+    container.innerHTML = '<div class="sky-hint">3D 引擎加载失败<br>请检查网络后刷新重试</div>';
     return;
   }
+  if (!sky3d) initSky3D(container);
 
-  const matchedIds = new Set(list.map(f=>f.id));
-  const html = friends.map(f => {
-    const s1 = seedOf(f.id), s2 = seedOf(f.id + 'y');
-    const x = 5 + s1 * 88;        // 5% ~ 93%
-    const y = 6 + s2 * 78;        // 6% ~ 84%
-    const size = (10 + seedOf(f.id + 's') * 8).toFixed(0);  // 10~18px
-    const color = colorOf(f.id);
+  // 清空旧星星与标签
+  for (const s of sky3d.sprites) {
+    sky3d.group.remove(s);
+    s.material.dispose();
+  }
+  sky3d.sprites = [];
+  sky3d.labelLayer.innerHTML = '';
+  container.querySelectorAll('.sky-hint,.sky-help').forEach(e => e.remove());
+
+  if (!friends.length) {
+    container.insertAdjacentHTML('beforeend', '<div class="sky-hint">这片夜空还没有星星<br>点击右上角「新建档案」点亮第一颗 ⭐</div>');
+    return;
+  }
+  container.insertAdjacentHTML('beforeend', '<div class="sky-help">拖动旋转 · 滚轮缩放 · 点击星星查看档案</div>');
+
+  const matchedIds = new Set(list.map(f => f.id));
+  for (const f of friends) {
     const d = daysToBirthday(f.birthday);
     const soon = d !== null && d <= 7;
+    const color = soon ? '#fbbf24' : colorOf(f.id);
     const dimmed = kw && !matchedIds.has(f.id);
-    const delay = (seedOf(f.id + 'd') * 3.4).toFixed(2);
+
+    // 球面稳定分布
+    const th = seedOf(f.id) * Math.PI * 2;
+    const ph = Math.acos(seedOf(f.id + 'y') * 2 - 1);
+    const r = 70 + seedOf(f.id + 'r') * 30;
+
+    const mat = new THREE.SpriteMaterial({
+      map: glowTexture(color), transparent: true,
+      depthWrite: false, opacity: dimmed ? 0.12 : 1
+    });
+    const sp = new THREE.Sprite(mat);
+    sp.position.set(
+      r * Math.sin(ph) * Math.cos(th),
+      r * Math.cos(ph) * 0.85,
+      r * Math.sin(ph) * Math.sin(th)
+    );
+    const base = 13 + seedOf(f.id + 's') * 9 + (soon ? 4 : 0);
+    sp.scale.set(base, base, 1);
+    sp.userData = {
+      fid: f.id, base, soon,
+      phase: seedOf(f.id + 'p') * Math.PI * 2,
+      label: null
+    };
+    sky3d.group.add(sp);
+    sky3d.sprites.push(sp);
+
+    // HTML 标签（名字 + 悬浮提示）
     const tipLines = [];
     if (f.catchphrase) tipLines.push(`💬 "${esc(f.catchphrase)}"`);
-    if (f.birthday) tipLines.push(`🎂 ${d===0 ? '今天生日！' : d + ' 天后生日'}`);
+    if (f.birthday) tipLines.push(`🎂 ${d === 0 ? '今天生日！' : d + ' 天后生日'}`);
     if (f.tags) tipLines.push(`🏷️ ${esc(f.tags)}`);
-    return `<div class="star${soon ? ' star-bday' : ''}${dimmed ? ' star-dim' : ''}"
-      style="left:${x}%;top:${y}%;--c:${color};--s:${size}px;animation-delay:${delay}s"
-      onclick="openDetail('${f.id}')">
-      <div class="star-tip">${tipLines.join('<br>') || '点击查看档案'}</div>
-      <div class="star-name">${esc(f.name)}</div>
-    </div>`;
-  }).join('');
-  sky.insertAdjacentHTML('beforeend', html);
+    const lb = document.createElement('div');
+    lb.className = 'star3d-label' + (dimmed ? ' dim' : '');
+    lb.style.pointerEvents = 'auto';
+    lb.innerHTML = `<span class="n">${esc(f.name)}</span><div class="star-tip">${tipLines.join('<br>') || '点击查看档案'}</div>`;
+    lb.onclick = () => openDetail(f.id);
+    sky3d.labelLayer.appendChild(lb);
+    sp.userData.label = lb;
+  }
 }
 
 /* ---------- 图片处理 ---------- */
