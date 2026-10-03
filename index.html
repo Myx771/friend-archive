@@ -493,6 +493,19 @@ function hashPwd(pwd) {
 let currentRole = null; // 'admin' | 'member' | 'guest'
 let memberName = sessionStorage.getItem('fa_member_name') || ''; // 成员昵称（标识档案归属）
 
+// 成员专属密码（绑定档案，换手机/清缓存后编辑需验证）
+function hashMemberPwd(pwd) { return hashPwd('member_pwd::' + pwd); }
+function memberAuthKey() { return 'fa_member_auth::' + memberName; }
+function memberVerified() { return sessionStorage.getItem(memberAuthKey()) === '1'; }
+function setMemberVerified() { sessionStorage.setItem(memberAuthKey(), '1'); }
+function clearMemberVerified() { sessionStorage.removeItem(memberAuthKey()); }
+// 该档案归属当前成员且已通过专属密码验证（旧档案无密码时视为已验证，兼容）
+function ownerVerified(f) {
+  if (currentRole !== 'member' || !f || f.owner !== memberName) return false;
+  if (!f.pwdHash) return true;
+  return memberVerified();
+}
+
 /* ---------- 权限能力（UI 与写操作统一走这里） ---------- */
 const isAdmin = () => currentRole === 'admin';
 const isMember = () => currentRole === 'member';
@@ -501,10 +514,10 @@ function memberHasArchive() {
   return currentRole === 'member' && friends.some(f => f.owner === memberName);
 }
 const canAdd = () => currentRole === 'admin' || (currentRole === 'member' && !memberHasArchive());
-// 管理员可改任何档案；成员只能改「自己创建且未被管理员锁定」的档案
+// 管理员可改任何档案；成员只能改「自己创建、已验证密码且未被管理员锁定」的档案
 function canEdit(f) {
   if (currentRole === 'admin') return !!f;
-  if (currentRole === 'member') return !!f && f.owner === memberName && !f.locked;
+  if (currentRole === 'member') return !!f && !f.locked && ownerVerified(f);
   return false;
 }
 
@@ -512,7 +525,7 @@ function showLock() {
   document.getElementById('lockTitle').textContent = '欢迎回来';
   document.getElementById('lockDesc').textContent = '请输入密码解锁档案';
   document.getElementById('lockTip').innerHTML =
-    '👑 管理员：可编辑全部档案<br>✨ 成员：可创建并编辑自己的档案<br>👀 访客：仅浏览';
+    '👑 管理员：可编辑全部档案<br>✨ 成员：凭名字+专属密码管理自己的档案<br>👀 访客：仅浏览';
   document.getElementById('lockPwd').value = '';
   document.getElementById('lockError').textContent = '';
   document.getElementById('lockScreen').classList.add('show');
@@ -526,28 +539,67 @@ function lockNow() {
 }
 
 function askMemberName() {
-  let name = sessionStorage.getItem('fa_member_name');
-  if (name) { memberName = name; return true; }
-  name = prompt('请输入你的名字（用于标记你创建的档案，之后只能改自己的）：');
+  const saved = sessionStorage.getItem('fa_member_name');
+  if (saved) {
+    memberName = saved;
+    // 已记住名字且本设备已验证过，直接进入
+    if (!friends.some(f=>f.owner===memberName && f.pwdHash) || memberVerified()) return true;
+  }
+  const name = prompt(saved ? `欢迎回来，${saved}！\n如不是本人可修改名字：` : '请输入你的名字（用于标记你创建的档案，之后只能改自己的）：', saved||'');
   if (name === null) return false;
-  name = name.trim();
-  if (!name) { alert('名字不能为空'); return false; }
-  memberName = name;
-  sessionStorage.setItem('fa_member_name', name);
+  const trimmed = name.trim();
+  if (!trimmed) { alert('名字不能为空'); return false; }
+  memberName = trimmed;
+  sessionStorage.setItem('fa_member_name', trimmed);
+
+  // 该名字下已有档案且设过专属密码 → 必须验证，防止他人冒名编辑
+  const own = friends.find(f=>f.owner===trimmed);
+  if (own && own.pwdHash) {
+    if (!verifyMemberPwd(own)) { alert('专属密码错误，无法以「'+trimmed+'」的身份编辑档案。'); return false; }
+  }
   return true;
+}
+
+// 弹出密码框验证成员专属密码（最多 3 次）
+function verifyMemberPwd(f) {
+  for (let i = 0; i < 3; i++) {
+    const pwd = prompt(`请输入「${f.owner}」的专属密码（编辑档案需要，仅本次浏览有效）：`);
+    if (pwd === null) return false;
+    if (hashMemberPwd(pwd.trim()) === f.pwdHash) { setMemberVerified(); return true; }
+    alert('密码不对，再想想～');
+  }
+  return false;
+}
+function verifyAndEdit(id) {
+  const f = friends.find(x=>x.id===id);
+  if (!f || !f.pwdHash) return;
+  if (verifyMemberPwd(f)) { closeDetail(); openForm(f); }
+}
+// 新建档案 / 旧档案补设密码时，要求设置专属密码
+function askNewMemberPwd() {
+  const p1 = prompt('设置你的专属密码（以后编辑自己的档案要用，请务必记住）：');
+  if (p1 === null) return null;
+  const pwd = p1.trim();
+  if (pwd.length < 4) { alert('密码至少 4 位'); return null; }
+  const p2 = prompt('请再输入一遍确认：');
+  if (p2 === null) return null;
+  if (p2.trim() !== pwd) { alert('两次输入不一致'); return null; }
+  return pwd;
 }
 function changeMemberName() {
   const name = prompt('修改你的名字（你创建的档案归属会一起变更）：', memberName);
   if (!name || !name.trim()) return;
   const next = name.trim();
   if (next === memberName) return;
+  const wasVerified = memberVerified();
   // 同步转移自己名下档案的归属，防止借改名创建第二个档案
-  let moved = 0;
-  friends.forEach(f => { if (f.owner === memberName) { f.owner = next; moved++; } });
+  friends.forEach(f => { if (f.owner === memberName) f.owner = next; });
+  clearMemberVerified();
   memberName = next;
   sessionStorage.setItem('fa_member_name', memberName);
+  if (wasVerified) setMemberVerified();
   applyRole(); render();
-  if (moved) persist();
+  if (friends.some(f=>f.owner===next)) persist();
 }
 
 function submitLock() {
@@ -1159,12 +1211,22 @@ function saveFriend(e) {
   document.querySelectorAll('.vis-chk').forEach(c => { visible[c.dataset.k] = c.checked; });
   data.visible = visible;
   if (!data.name) return;
+  // 成员：新建档案时必须设置专属密码；旧档案没密码的，本次保存时补设
+  if (!isAdmin()) {
+    const existing = editingId ? friends.find(x=>x.id===editingId) : null;
+    if (!existing || !existing.pwdHash) {
+      const pwd = askNewMemberPwd();
+      if (pwd === null) return; // 用户取消，留在编辑表单
+      data.pwdHash = hashMemberPwd(pwd);
+    }
+  }
   if (editingId) {
     const f = friends.find(x=>x.id===editingId);
     if (f) Object.assign(f, data); // owner / locked 保留不动
   } else {
     // 新建：管理员创建的归属 admin；成员创建的归属自己的名字
     friends.push({ id: uid(), created: Date.now(), owner: isAdmin() ? 'admin' : memberName, locked: false, ...data });
+    if (!isAdmin()) setMemberVerified(); // 刚设完密码，本设备直接通过
   }
   closeForm(); render();
   persist(); // 后台同步本地+云端
@@ -1180,6 +1242,7 @@ function openDetail(id) {
   const tags = (f.tags||'').split(/[,，]/).map(s=>s.trim()).filter(Boolean);
   const admin = isAdmin();
   const editable = canEdit(f);
+  const needVerify = isMember() && f.owner===memberName && !f.locked && !!f.pwdHash && !ownerVerified(f);
   const ownerLabel = f.owner && f.owner !== 'admin' ? esc(f.owner) : (f.owner === 'admin' ? '管理员' : '未知');
   document.getElementById('detailContent').innerHTML = `
     <div class="detail-head">
@@ -1198,12 +1261,14 @@ function openDetail(id) {
     ${f.quote&&canSee(f,'quote')?`<div class="detail-row"><span class="k">最爱的话</span><i>${esc(f.quote)}</i></div>`:''}
     ${f.dislike&&canSee(f,'dislike')?`<div class="detail-row"><span class="k">⚠️ 雷区</span><span style="color:var(--danger)">${esc(f.dislike).replace(/\n/g,'<br>')}</span></div>`:''}
     ${f.note&&canSee(f,'note')?`<div class="detail-row"><span class="k">备注</span>${esc(f.note).replace(/\n/g,'<br>')}</div>`:''}
-    ${admin?`<div class="detail-row" style="border-top:1px dashed #e5e7eb;margin-top:6px;padding-top:12px;font-size:12px;color:var(--text-3)">📝 创建者：${ownerLabel}　${f.locked?'🔒 已锁定（创建者无法再修改）':'🔓 未锁定'}<br>🔒 访客可见：${(()=>{const K={photo:'头像照片',phone:'电话',birthday:'生日',tags:'爱好',emoji:'表情包',sticker:'表情图',catchphrase:'口头禅',quote:'最爱的话',dislike:'雷区',note:'备注'};const v=f.visible||{};const off=Object.keys(K).filter(k=>v[k]===false);return off.length?'隐藏 '+off.map(k=>K[k]).join('、'):'全部可见';})()}</div>`:''}
+    ${admin?`<div class="detail-row" style="border-top:1px dashed #e5e7eb;margin-top:6px;padding-top:12px;font-size:12px;color:var(--text-3)">📝 创建者：${ownerLabel}　${f.locked?'🔒 已锁定（创建者无法再修改）':'🔓 未锁定'}　${f.owner&&f.owner!=='admin'?(f.pwdHash?'🔑 已设专属密码':'⚠️ 未设专属密码'):''}<br>🔒 访客可见：${(()=>{const K={photo:'头像照片',phone:'电话',birthday:'生日',tags:'爱好',emoji:'表情包',sticker:'表情图',catchphrase:'口头禅',quote:'最爱的话',dislike:'雷区',note:'备注'};const v=f.visible||{};const off=Object.keys(K).filter(k=>v[k]===false);return off.length?'隐藏 '+off.map(k=>K[k]).join('、'):'全部可见';})()}</div>`:''}
     ${isMember()&&f.owner===memberName&&f.locked?`<div class="detail-row" style="font-size:12px;color:var(--warning)">🔒 管理员已锁定此档案，你暂时无法修改</div>`:''}
     <div class="modal-actions">
       ${editable?`<button class="btn btn-danger btn-sm" onclick="removeFriend('${f.id}')">删除</button>`:''}
       <button class="btn btn-ghost btn-sm" onclick="closeDetail()">关闭</button>
+      ${admin&&f.owner&&f.owner!=='admin'?`<button class="btn btn-ghost btn-sm" onclick="resetMemberPwd('${f.id}')" title="成员忘记密码时使用，清空后他可重新设置">🔑 重置密码</button>`:''}
       ${admin?`<button class="btn btn-ghost btn-sm" onclick="toggleLock('${f.id}')" style="${f.locked?'color:var(--success);border-color:#a7f3d0;background:#ecfdf5':'color:var(--warning);border-color:#fde68a;background:var(--warning-bg)'}">${f.locked?'🔓 解锁':'🔒 锁定'}</button>`:''}
+      ${needVerify?`<button class="btn btn-primary btn-sm" onclick="verifyAndEdit('${f.id}')">🔑 输入密码编辑</button>`:''}
       ${editable?`<button class="btn btn-primary btn-sm" onclick="editFromDetail('${f.id}')">编辑</button>`:''}
     </div>`;
   document.getElementById('detailMask').classList.add('show');
@@ -1227,6 +1292,18 @@ function toggleLock(id) {
   const f = friends.find(x=>x.id===id);
   if (!f) return;
   f.locked = !f.locked;
+  render();
+  openDetail(id);
+  persist();
+}
+
+// 管理员重置成员的专属密码（清空后，该成员下次编辑时需重新设置）
+function resetMemberPwd(id) {
+  if (!isAdmin()) return;
+  const f = friends.find(x=>x.id===id);
+  if (!f || !f.owner || f.owner === 'admin') return;
+  if (!confirm(`确定清空「${f.owner}」的专属密码吗？\n清空后他下次进入并编辑档案时，需要重新设置一个新密码。`)) return;
+  f.pwdHash = null;
   render();
   openDetail(id);
   persist();
