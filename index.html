@@ -470,8 +470,9 @@ const db = (SUPABASE_URL.startsWith('https://') && window.supabase)
   : null;
 
 /* ---------- 密码锁 ---------- */
-// 管理员密码：admin123　访客密码：guest123（修改密码请联系站长重新生成哈希）
+// 管理员：admin123（全部权限）　成员：friend123（可建/改自己的档案）　访客：guest123（仅查看）
 const ADMIN_HASH = '8fbff5fcab1acf1d';
+const MEMBER_HASH = 'e6889f266cbcd7a8';
 const GUEST_HASH = '49cb1349c8113c60';
 
 function hashPwd(pwd) {
@@ -487,18 +488,65 @@ function hashPwd(pwd) {
   return (h2>>>0).toString(16) + (h1>>>0).toString(16);
 }
 
-let currentRole = null; // 'admin' | 'guest'
+let currentRole = null; // 'admin' | 'member' | 'guest'
+let memberName = sessionStorage.getItem('fa_member_name') || ''; // 成员昵称（标识档案归属）
+
+/* ---------- 权限能力（UI 与写操作统一走这里） ---------- */
+const isAdmin = () => currentRole === 'admin';
+const isMember = () => currentRole === 'member';
+// 成员名下当前是否已有档案（同一时间只能有一个；被删除后才能重建）
+function memberHasArchive() {
+  return currentRole === 'member' && friends.some(f => f.owner === memberName);
+}
+const canAdd = () => currentRole === 'admin' || (currentRole === 'member' && !memberHasArchive());
+// 管理员可改任何档案；成员只能改「自己创建且未被管理员锁定」的档案
+function canEdit(f) {
+  if (currentRole === 'admin') return !!f;
+  if (currentRole === 'member') return !!f && f.owner === memberName && !f.locked;
+  return false;
+}
 
 function showLock() {
   document.getElementById('lockTitle').textContent = '欢迎回来';
   document.getElementById('lockDesc').textContent = '请输入密码解锁档案';
-  document.getElementById('lockTip').innerHTML = '管理员可编辑，访客仅查看';
+  document.getElementById('lockTip').innerHTML =
+    '👑 管理员：可编辑全部档案<br>✨ 成员：可创建并编辑自己的档案<br>👀 访客：仅浏览';
   document.getElementById('lockPwd').value = '';
   document.getElementById('lockError').textContent = '';
   document.getElementById('lockScreen').classList.add('show');
   setTimeout(()=>document.getElementById('lockPwd').focus(), 50);
 }
-function lockNow() { sessionStorage.removeItem('fa_role'); currentRole = null; showLock(); }
+function lockNow() {
+  sessionStorage.removeItem('fa_role');
+  sessionStorage.removeItem('fa_member_name');
+  currentRole = null; memberName = '';
+  showLock();
+}
+
+function askMemberName() {
+  let name = sessionStorage.getItem('fa_member_name');
+  if (name) { memberName = name; return true; }
+  name = prompt('请输入你的名字（用于标记你创建的档案，之后只能改自己的）：');
+  if (name === null) return false;
+  name = name.trim();
+  if (!name) { alert('名字不能为空'); return false; }
+  memberName = name;
+  sessionStorage.setItem('fa_member_name', name);
+  return true;
+}
+function changeMemberName() {
+  const name = prompt('修改你的名字（你创建的档案归属会一起变更）：', memberName);
+  if (!name || !name.trim()) return;
+  const next = name.trim();
+  if (next === memberName) return;
+  // 同步转移自己名下档案的归属，防止借改名创建第二个档案
+  let moved = 0;
+  friends.forEach(f => { if (f.owner === memberName) { f.owner = next; moved++; } });
+  memberName = next;
+  sessionStorage.setItem('fa_member_name', memberName);
+  applyRole(); render();
+  if (moved) persist();
+}
 
 function submitLock() {
   const pwd = document.getElementById('lockPwd').value;
@@ -509,6 +557,11 @@ function submitLock() {
   if (h === ADMIN_HASH) {
     currentRole = 'admin';
     sessionStorage.setItem('fa_role', 'admin');
+    unlock();
+  } else if (h === MEMBER_HASH) {
+    if (!askMemberName()) return; // 没填名字则留在锁屏
+    currentRole = 'member';
+    sessionStorage.setItem('fa_role', 'member');
     unlock();
   } else if (h === GUEST_HASH) {
     currentRole = 'guest';
@@ -530,11 +583,28 @@ function unlock() {
   render();
 }
 function applyRole() {
-  const isAdmin = currentRole === 'admin';
-  document.getElementById('addBtn').style.display = isAdmin ? 'inline-flex' : 'none';
-  document.getElementById('shareBtn').style.display = isAdmin ? 'inline-flex' : 'none';
-  document.getElementById('roleBadge').textContent = isAdmin ? '👑 管理员' : '👀 访客';
-  document.getElementById('roleBadge').style.display = 'inline-flex';
+  const admin = isAdmin();
+  const member = isMember();
+  document.getElementById('addBtn').style.display = canAdd() ? 'inline-flex' : 'none';
+  document.getElementById('shareBtn').style.display = admin ? 'inline-flex' : 'none';
+  const badge = document.getElementById('roleBadge');
+  if (admin) {
+    badge.textContent = '👑 管理员';
+    badge.onclick = null;
+    badge.style.cursor = 'default';
+    badge.title = '';
+  } else if (member) {
+    badge.textContent = `✨ 成员 · ${memberName}`;
+    badge.onclick = changeMemberName;
+    badge.style.cursor = 'pointer';
+    badge.title = '点击修改名字';
+  } else {
+    badge.textContent = '👀 访客';
+    badge.onclick = null;
+    badge.style.cursor = 'default';
+    badge.title = '';
+  }
+  badge.style.display = 'inline-flex';
 }
 document.getElementById('lockPwd').addEventListener('keydown', e=>{ if(e.key==='Enter') submitLock(); });
 const COLORS = ['#4f46e5','#7c3aed','#2563eb','#059669','#d97706','#dc2626','#0891b2','#9333ea','#db2777','#4d7c0f'];
@@ -684,6 +754,9 @@ function render() {
     });
   } else list.sort((a,b)=>b.created - a.created);
 
+  // 新建按钮：成员已有档案时隐藏（管理员始终可见）
+  document.getElementById('addBtn').style.display = canAdd() ? 'inline-flex' : 'none';
+
   // 统计
   stats.innerHTML = friends.length
     ? `<span class="stat-pill">🧑‍🤝‍🧑 共 ${friends.length} 位朋友</span>${kw?`<span class="stat-pill">🔍 匹配 ${list.length} 位</span>`:''}`
@@ -692,7 +765,7 @@ function render() {
   // 生日提醒（30天内）
   const upcoming = friends
     .map(f=>({f, d: daysToBirthday(f.birthday)}))
-    .filter(x=>x.d!==null && x.d<=30)
+    .filter(x=>x.d!==null && x.d<=30 && canSee(x.f,'birthday'))
     .sort((a,b)=>a.d-b.d);
   if (upcoming.length) {
     bannerInner.className = 'banner-inner show';
@@ -705,7 +778,9 @@ function render() {
   if (!list.length) {
     const emptyTip = friends.length
       ? '没有找到匹配的朋友'
-      : (currentRole === 'admin' ? '还没有档案，点击右上角「新建档案」开始吧' : '暂无档案，请联系管理员添加');
+      : (currentRole === 'admin' ? '还没有档案，点击右上角「新建档案」开始吧'
+         : currentRole === 'member' ? '还没有档案，点击右上角「＋ 新建档案」创建你自己的吧'
+         : '暂无档案，请联系管理员添加');
     grid.innerHTML = `<div class="empty">
       <div class="big">📭</div>
       <p>${emptyTip}</p>
@@ -720,7 +795,7 @@ function render() {
       <div class="card-head">
         ${avatarHTML(f)}
         <div class="card-info">
-          <h3>${esc(f.name)}</h3>
+          <h3>${esc(f.name)}${f.locked?' 🔒':''}${isMember()&&f.owner===memberName?' <span style="font-size:11px;color:var(--accent);font-weight:600">（我）</span>':''}</h3>
           <div class="sub">${f.nickname?esc(f.nickname)+' · ':''}${zodiac?esc(zodiac)+'座':''}${age!=null?' · '+age+'岁':''}</div>
         </div>
         ${stickerHTML(f)}
@@ -947,7 +1022,7 @@ function renderSky(list, kw) {
     const lb = document.createElement('div');
     lb.className = 'star3d-label' + (dimmed ? ' dim' : '');
     lb.style.pointerEvents = 'auto';
-    lb.innerHTML = `<span class="n">${esc(f.name)}</span><div class="star-tip">${tipLines.join('<br>') || '点击查看档案'}</div>`;
+    lb.innerHTML = `<span class="n">${f.locked?'🔒 ':''}${esc(f.name)}${isMember()&&f.owner===memberName?' <span style="color:#a5b4fc">（我）</span>':''}</span><div class="star-tip">${tipLines.join('<br>') || '点击查看档案'}</div>`;
     lb.onclick = () => openDetail(f.id);
     sky3d.labelLayer.appendChild(lb);
     sp.userData.label = lb;
@@ -1016,7 +1091,14 @@ function stickerHTML(f) {
 
 /* ---------- 表单 ---------- */
 function openForm(f) {
-  if (currentRole !== 'admin') { alert('访客模式无法编辑，请使用管理员密码登录。'); return; }
+  // f 为空 = 新建；非空 = 编辑（需权限）
+  if (f) {
+    if (!canEdit(f)) { alert(f.locked ? '该档案已被管理员锁定，无法编辑。' : '你只能编辑自己创建的档案。'); return; }
+  } else if (!canAdd()) {
+    if (currentRole === 'member') alert('每人只能创建一个档案，你的档案已经存在啦～\n如需重新创建，请联系管理员删除现有档案。');
+    else alert('访客模式无法新建，请使用成员或管理员密码登录。');
+    return;
+  }
   editingId = f ? f.id : null;
   document.getElementById('formTitle').textContent = f ? '编辑档案' : '新建朋友档案';
   document.getElementById('fId').value = f ? f.id : '';
@@ -1047,7 +1129,14 @@ function closeForm(){ document.getElementById('formMask').classList.remove('show
 
 function saveFriend(e) {
   e.preventDefault();
-  if (currentRole !== 'admin') { alert('访客模式无法编辑。'); return; }
+  // 硬拦截：再次校验当前操作权限
+  if (editingId) {
+    const target = friends.find(x=>x.id===editingId);
+    if (!canEdit(target)) { alert('没有权限保存此档案。'); return; }
+  } else if (!canAdd()) {
+    alert(currentRole === 'member' ? '每人只能创建一个档案，你已经创建过了。' : '没有权限新建档案。');
+    return;
+  }
   const data = {
     name: document.getElementById('fName').value.trim(),
     nickname: document.getElementById('fNickname').value.trim(),
@@ -1069,9 +1158,10 @@ function saveFriend(e) {
   if (!data.name) return;
   if (editingId) {
     const f = friends.find(x=>x.id===editingId);
-    if (f) Object.assign(f, data);
+    if (f) Object.assign(f, data); // owner / locked 保留不动
   } else {
-    friends.push({ id: uid(), created: Date.now(), ...data });
+    // 新建：管理员创建的归属 admin；成员创建的归属自己的名字
+    friends.push({ id: uid(), created: Date.now(), owner: isAdmin() ? 'admin' : memberName, locked: false, ...data });
   }
   closeForm(); render();
   persist(); // 后台同步本地+云端
@@ -1085,12 +1175,14 @@ function openDetail(id) {
   const age = getAge(f.birthday);
   const zodiac = getZodiac(f.birthday);
   const tags = (f.tags||'').split(/[,，]/).map(s=>s.trim()).filter(Boolean);
-  const isAdmin = currentRole === 'admin';
+  const admin = isAdmin();
+  const editable = canEdit(f);
+  const ownerLabel = f.owner && f.owner !== 'admin' ? esc(f.owner) : (f.owner === 'admin' ? '管理员' : '未知');
   document.getElementById('detailContent').innerHTML = `
     <div class="detail-head">
       ${avatarHTML(f)}
       <div>
-        <h2>${esc(f.name)}${age!=null?` <span style="font-size:14px;color:var(--text-3);font-weight:500">${age}岁</span>`:''}</h2>
+        <h2>${f.locked?'🔒 ':''}${esc(f.name)}${age!=null?` <span style="font-size:14px;color:var(--text-3);font-weight:500">${age}岁</span>`:''}</h2>
         ${f.nickname?`<div style="color:var(--text-3);font-size:13px">昵称：${esc(f.nickname)}</div>`:''}
       </div>
     </div>
@@ -1103,25 +1195,38 @@ function openDetail(id) {
     ${f.quote&&canSee(f,'quote')?`<div class="detail-row"><span class="k">最爱的话</span><i>${esc(f.quote)}</i></div>`:''}
     ${f.dislike&&canSee(f,'dislike')?`<div class="detail-row"><span class="k">⚠️ 雷区</span><span style="color:var(--danger)">${esc(f.dislike).replace(/\n/g,'<br>')}</span></div>`:''}
     ${f.note&&canSee(f,'note')?`<div class="detail-row"><span class="k">备注</span>${esc(f.note).replace(/\n/g,'<br>')}</div>`:''}
-    ${isAdmin?`<div class="detail-row" style="border-top:1px dashed #e5e7eb;margin-top:6px;padding-top:12px;font-size:12px;color:var(--text-3)">🔒 访客可见：${(()=>{const K={phone:'电话',birthday:'生日',tags:'爱好',emoji:'表情包',catchphrase:'口头禅',quote:'最爱的话',dislike:'雷区',note:'备注'};const v=f.visible||{};const off=Object.keys(K).filter(k=>v[k]===false);return off.length?'隐藏 '+off.map(k=>K[k]).join('、'):'全部可见';})()}</div>`:''}
+    ${admin?`<div class="detail-row" style="border-top:1px dashed #e5e7eb;margin-top:6px;padding-top:12px;font-size:12px;color:var(--text-3)">📝 创建者：${ownerLabel}　${f.locked?'🔒 已锁定（创建者无法再修改）':'🔓 未锁定'}<br>🔒 访客可见：${(()=>{const K={phone:'电话',birthday:'生日',tags:'爱好',emoji:'表情包',catchphrase:'口头禅',quote:'最爱的话',dislike:'雷区',note:'备注'};const v=f.visible||{};const off=Object.keys(K).filter(k=>v[k]===false);return off.length?'隐藏 '+off.map(k=>K[k]).join('、'):'全部可见';})()}</div>`:''}
+    ${isMember()&&f.owner===memberName&&f.locked?`<div class="detail-row" style="font-size:12px;color:var(--warning)">🔒 管理员已锁定此档案，你暂时无法修改</div>`:''}
     <div class="modal-actions">
-      ${isAdmin?`<button class="btn btn-danger btn-sm" onclick="removeFriend('${f.id}')">删除</button>`:''}
+      ${editable?`<button class="btn btn-danger btn-sm" onclick="removeFriend('${f.id}')">删除</button>`:''}
       <button class="btn btn-ghost btn-sm" onclick="closeDetail()">关闭</button>
-      ${isAdmin?`<button class="btn btn-primary btn-sm" onclick="editFromDetail('${f.id}')">编辑</button>`:''}
+      ${admin?`<button class="btn btn-ghost btn-sm" onclick="toggleLock('${f.id}')" style="${f.locked?'color:var(--success);border-color:#a7f3d0;background:#ecfdf5':'color:var(--warning);border-color:#fde68a;background:var(--warning-bg)'}">${f.locked?'🔓 解锁':'🔒 锁定'}</button>`:''}
+      ${editable?`<button class="btn btn-primary btn-sm" onclick="editFromDetail('${f.id}')">编辑</button>`:''}
     </div>`;
   document.getElementById('detailMask').classList.add('show');
 }
 function closeDetail(){ document.getElementById('detailMask').classList.remove('show'); }
 function editFromDetail(id){ closeDetail(); openForm(friends.find(x=>x.id===id)); }
 function removeFriend(id){
-  if (currentRole !== 'admin') { alert('访客模式无法删除。'); return; }
   const f = friends.find(x=>x.id===id);
   if (!f) return;
+  if (!canEdit(f)) { alert(f.locked ? '该档案已被管理员锁定，无法删除。' : '你只能删除自己创建的档案。'); return; }
   if (!confirm(`确定要删除「${f.name}」的档案吗？此操作不可恢复。`)) return;
   friends = friends.filter(x=>x.id!==id);
   closeDetail(); render();
   try { localStorage.setItem(STORE_KEY, JSON.stringify(friends)); } catch(e){}
   dbDelete(id); // 后台从云端删除
+}
+
+// 管理员锁定 / 解锁档案（锁定后创建者本人也不能改，管理员不受影响）
+function toggleLock(id) {
+  if (!isAdmin()) return;
+  const f = friends.find(x=>x.id===id);
+  if (!f) return;
+  f.locked = !f.locked;
+  render();
+  openDetail(id);
+  persist();
 }
 
 /* ---------- 事件 ---------- */
@@ -1134,6 +1239,9 @@ document.getElementById('detailMask').addEventListener('click', e=>{ if(e.target
 const savedRole = sessionStorage.getItem('fa_role');
 if (savedRole === 'admin' || savedRole === 'guest') {
   currentRole = savedRole;
+  unlock();
+} else if (savedRole === 'member' && memberName) {
+  currentRole = 'member';
   unlock();
 } else {
   showLock();
