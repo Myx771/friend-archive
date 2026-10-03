@@ -738,7 +738,15 @@ async function persist() {
   if (!db) return;
   try {
     const { error } = await db.from(DB_TABLE).upsert(friends, { onConflict: 'id' });
-    if (error) console.warn('云端同步失败：', error);
+    if (error) {
+      console.warn('云端同步失败：', error);
+      // 字段缺失等结构性问题，明确提示用户
+      if (error.code === '42703' || /column .* does not exist/i.test(error.message||'')) {
+        alert('⚠️ 保存失败：云端数据库缺少字段。\n请让网站管理员在 Supabase 的 SQL Editor 里运行：\n\nalter table friends add column if not exists pwdhash text;\n\n运行后再试一次。');
+      } else {
+        alert('⚠️ 保存到云端失败，请检查网络后重试：' + (error.message || error));
+      }
+    }
   } catch(e) { console.warn('云端同步异常：', e); }
 }
 
