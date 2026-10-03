@@ -416,6 +416,16 @@
         </div>
       </div>
       <div class="form-group">
+        <label>视频（可选，建议 30 秒以内 / 50MB 以下）</label>
+        <div class="upload-row">
+          <input type="file" id="fVideo" accept="video/*" style="display:none" onchange="onVideoPick(event)">
+          <button type="button" class="btn btn-ghost btn-sm" onclick="document.getElementById('fVideo').click()">🎬 选择视频</button>
+          <button type="button" class="btn btn-ghost btn-sm" id="videoClearBtn" style="display:none" onclick="clearVideo()">移除视频</button>
+          <span id="videoStatus" style="font-size:12px;color:var(--text-3)"></span>
+        </div>
+        <video id="videoPreview" class="upload-preview-video" controls style="display:none;margin-top:8px;max-width:100%;max-height:220px;border-radius:10px"></video>
+      </div>
+      <div class="form-group">
         <label>口头禅</label>
         <input id="fCatchphrase" maxlength="50" placeholder="TA最常说的话">
       </div>
@@ -440,6 +450,7 @@
           <label style="display:flex;align-items:center;gap:4px;font-weight:400"><input type="checkbox" class="vis-chk" data-k="tags" checked> 爱好标签</label>
           <label style="display:flex;align-items:center;gap:4px;font-weight:400"><input type="checkbox" class="vis-chk" data-k="emoji" checked> 表情包</label>
           <label style="display:flex;align-items:center;gap:4px;font-weight:400"><input type="checkbox" class="vis-chk" data-k="sticker" checked> 表情图</label>
+          <label style="display:flex;align-items:center;gap:4px;font-weight:400"><input type="checkbox" class="vis-chk" data-k="video" checked> 视频</label>
           <label style="display:flex;align-items:center;gap:4px;font-weight:400"><input type="checkbox" class="vis-chk" data-k="catchphrase" checked> 口头禅</label>
           <label style="display:flex;align-items:center;gap:4px;font-weight:400"><input type="checkbox" class="vis-chk" data-k="quote" checked> 最喜欢的话</label>
           <label style="display:flex;align-items:center;gap:4px;font-weight:400"><input type="checkbox" class="vis-chk" data-k="dislike" checked> 雷区</label>
@@ -1142,6 +1153,96 @@ function clearSticker() {
   document.getElementById('stickerPreview').classList.remove('show');
   document.getElementById('stickerClearBtn').style.display = 'none';
 }
+
+/* ---------- 视频处理（存 Supabase Storage，数据库只存链接） ---------- */
+const VIDEO_BUCKET = 'videos';
+const VIDEO_MAX_MB = 100;
+let tempVideo = '';        // 视频公开访问 URL
+let tempVideoPath = '';    // Storage 内路径（删除/替换用）
+let videoUploading = false;
+
+function videoExt(file) {
+  const m = (file.type||'').split('/')[1];
+  if (m === 'quicktime') return 'mov';
+  if (m === 'x-matroska') return 'mkv';
+  return (m || 'mp4').replace(/[^a-z0-9]/gi,'');
+}
+// 从公开 URL 还原 Storage 对象路径
+function urlToStoragePath(url) {
+  if (!url) return '';
+  const marker = '/storage/v1/object/public/' + VIDEO_BUCKET + '/';
+  const i = url.indexOf(marker);
+  return i >= 0 ? decodeURIComponent(url.slice(i + marker.length)) : '';
+}
+async function deleteStorageVideo(urlOrPath) {
+  if (!db || !urlOrPath) return;
+  const p = urlOrPath.startsWith('http') ? urlToStoragePath(urlOrPath) : urlOrPath;
+  if (!p) return;
+  try { await db.storage.from(VIDEO_BUCKET).remove([p]); } catch(e){}
+}
+function setVideoStatus(txt, color) {
+  const el = document.getElementById('videoStatus');
+  if (!el) return;
+  el.textContent = txt;
+  el.style.color = color || 'var(--text-3)';
+}
+function showVideoPreview(url) {
+  const v = document.getElementById('videoPreview');
+  v.src = url; v.style.display = url ? 'block' : 'none';
+  document.getElementById('videoClearBtn').style.display = url ? 'inline-flex' : 'none';
+}
+async function onVideoPick(ev) {
+  const file = ev.target.files[0];
+  ev.target.value = '';
+  if (!file) return;
+  if (!db) { alert('云端存储未配置，无法上传视频。'); return; }
+  const mb = file.size / 1024 / 1024;
+  if (mb > VIDEO_MAX_MB) { alert('视频太大了（' + mb.toFixed(1) + 'MB），请上传 ' + VIDEO_MAX_MB + 'MB 以内的短视频。'); return; }
+
+  // 先本地预览
+  const localUrl = URL.createObjectURL(file);
+  showVideoPreview(localUrl);
+  setVideoStatus('☁️ 上传中 0%', 'var(--warning)');
+  videoUploading = true;
+
+  const path = (editingId || uid()) + '_' + Date.now() + '.' + videoExt(file);
+  try {
+    const { error } = await db.storage.from(VIDEO_BUCKET).upload(path, file, {
+      contentType: file.type || 'video/mp4',
+      upsert: true,
+      onUploadProgress: (evt) => {
+        if (evt.total) setVideoStatus('☁️ 上传中 ' + Math.round(evt.loaded/evt.total*100) + '%', 'var(--warning)');
+      }
+    });
+    if (error) throw error;
+    const { data } = db.storage.from(VIDEO_BUCKET).getPublicUrl(path);
+    // 替换旧视频
+    if (tempVideoPath && tempVideoPath !== path) await deleteStorageVideo(tempVideoPath);
+    tempVideo = data.publicUrl;
+    tempVideoPath = path;
+    videoUploading = false;
+    showVideoPreview(tempVideo);
+    setVideoStatus('✅ 上传完成（' + mb.toFixed(1) + 'MB），记得点下面的保存', 'var(--success)');
+  } catch(e) {
+    videoUploading = false;
+    showVideoPreview('');
+    tempVideo = ''; tempVideoPath = '';
+    setVideoStatus('', '');
+    const msg = String(e.message || e);
+    if (/bucket|404|not found/i.test(msg)) {
+      alert('视频存储空间还没创建。\n请让管理员在 Supabase 的 SQL Editor 运行建桶语句（见发布说明）后再试。');
+    } else {
+      alert('视频上传失败：' + msg);
+    }
+  }
+}
+async function clearVideo() {
+  if (videoUploading) { alert('视频还在上传中，请稍候…'); return; }
+  if (tempVideoPath) await deleteStorageVideo(tempVideoPath);
+  tempVideo = ''; tempVideoPath = '';
+  showVideoPreview('');
+  setVideoStatus('', '');
+}
 function avatarHTML(f, sizeClass) {
   // 照片仅在管理员允许访客查看时显示；隐藏则回退为彩色首字头像
   if (f.photo && canSee(f,'photo')) return `<img class="avatar" src="${f.photo}" alt="">`;
@@ -1187,12 +1288,19 @@ function openForm(f) {
   const sp = document.getElementById('stickerPreview');
   sp.src = tempSticker; sp.classList.toggle('show', !!tempSticker);
   document.getElementById('stickerClearBtn').style.display = tempSticker ? 'inline-flex' : 'none';
+  // 视频回填
+  videoUploading = false;
+  tempVideo = f ? (f.video||'') : '';
+  tempVideoPath = f && f.video ? urlToStoragePath(f.video) : '';
+  showVideoPreview(tempVideo);
+  setVideoStatus('', '');
   document.getElementById('formMask').classList.add('show');
 }
 function closeForm(){ document.getElementById('formMask').classList.remove('show'); }
 
 function saveFriend(e) {
   e.preventDefault();
+  if (videoUploading) { alert('视频还在上传中，请等「✅ 上传完成」后再保存～'); return; }
   // 硬拦截：再次校验当前操作权限
   if (editingId) {
     const target = friends.find(x=>x.id===editingId);
@@ -1214,6 +1322,7 @@ function saveFriend(e) {
     note: document.getElementById('fNote').value.trim(),
     photo: tempPhoto,
     sticker: tempSticker,
+    video: tempVideo,
   };
   // 收集访客可见范围
   const visible = {};
@@ -1266,11 +1375,12 @@ function openDetail(id) {
     ${tags.length&&canSee(f,'tags')?`<div class="detail-row"><span class="k">爱好</span>${tags.map(t=>`<span class="tag">${esc(t)}</span>`).join('')}</div>`:''}
     ${f.emoji&&canSee(f,'emoji')?`<div class="detail-row"><span class="k">表情包</span><span style="font-size:20px">${esc(f.emoji)}</span></div>`:''}
     ${f.sticker&&canSee(f,'sticker')?`<div class="detail-row"><span class="k">表情图</span><img src="${f.sticker}" style="width:64px;height:64px;object-fit:contain;border-radius:8px;vertical-align:middle"></div>`:''}
+    ${f.video&&canSee(f,'video')?`<div class="detail-row"><span class="k">视频</span><video src="${esc(f.video)}" controls preload="metadata" playsinline style="max-width:100%;max-height:320px;border-radius:12px;vertical-align:middle;background:#000"></video></div>`:''}
     ${f.catchphrase&&canSee(f,'catchphrase')?`<div class="detail-row"><span class="k">口头禅</span>"${esc(f.catchphrase)}"</div>`:''}
     ${f.quote&&canSee(f,'quote')?`<div class="detail-row"><span class="k">最爱的话</span><i>${esc(f.quote)}</i></div>`:''}
     ${f.dislike&&canSee(f,'dislike')?`<div class="detail-row"><span class="k">⚠️ 雷区</span><span style="color:var(--danger)">${esc(f.dislike).replace(/\n/g,'<br>')}</span></div>`:''}
     ${f.note&&canSee(f,'note')?`<div class="detail-row"><span class="k">备注</span>${esc(f.note).replace(/\n/g,'<br>')}</div>`:''}
-    ${admin?`<div class="detail-row" style="border-top:1px dashed #e5e7eb;margin-top:6px;padding-top:12px;font-size:12px;color:var(--text-3)">📝 创建者：${ownerLabel}　${f.locked?'🔒 已锁定（创建者无法再修改）':'🔓 未锁定'}　${f.owner&&f.owner!=='admin'?(f.pwdHash?'🔑 已设专属密码':'⚠️ 未设专属密码'):''}<br>🔒 访客可见：${(()=>{const K={photo:'头像照片',phone:'电话',birthday:'生日',tags:'爱好',emoji:'表情包',sticker:'表情图',catchphrase:'口头禅',quote:'最爱的话',dislike:'雷区',note:'备注'};const v=f.visible||{};const off=Object.keys(K).filter(k=>v[k]===false);return off.length?'隐藏 '+off.map(k=>K[k]).join('、'):'全部可见';})()}</div>`:''}
+    ${admin?`<div class="detail-row" style="border-top:1px dashed #e5e7eb;margin-top:6px;padding-top:12px;font-size:12px;color:var(--text-3)">📝 创建者：${ownerLabel}　${f.locked?'🔒 已锁定（创建者无法再修改）':'🔓 未锁定'}　${f.owner&&f.owner!=='admin'?(f.pwdHash?'🔑 已设专属密码':'⚠️ 未设专属密码'):''}<br>🔒 访客可见：${(()=>{const K={photo:'头像照片',phone:'电话',birthday:'生日',tags:'爱好',emoji:'表情包',sticker:'表情图',video:'视频',catchphrase:'口头禅',quote:'最爱的话',dislike:'雷区',note:'备注'};const v=f.visible||{};const off=Object.keys(K).filter(k=>v[k]===false);return off.length?'隐藏 '+off.map(k=>K[k]).join('、'):'全部可见';})()}</div>`:''}
     ${isMember()&&f.owner===memberName&&f.locked?`<div class="detail-row" style="font-size:12px;color:var(--warning)">🔒 管理员已锁定此档案，你暂时无法修改</div>`:''}
     <div class="modal-actions">
       ${editable?`<button class="btn btn-danger btn-sm" onclick="removeFriend('${f.id}')">删除</button>`:''}
@@ -1289,6 +1399,7 @@ function removeFriend(id){
   if (!f) return;
   if (!canEdit(f)) { alert(f.locked ? '该档案已被管理员锁定，无法删除。' : '你只能删除自己创建的档案。'); return; }
   if (!confirm(`确定要删除「${f.name}」的档案吗？此操作不可恢复。`)) return;
+  if (f.video) deleteStorageVideo(f.video); // 一并删除云端视频文件
   friends = friends.filter(x=>x.id!==id);
   closeDetail(); render();
   try { localStorage.setItem(STORE_KEY, JSON.stringify(friends)); } catch(e){}
