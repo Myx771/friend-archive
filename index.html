@@ -433,10 +433,12 @@
       <div class="form-group">
         <label>访客可见范围（不勾选 = 仅管理员可见）</label>
         <div style="display:flex;flex-wrap:wrap;gap:8px 16px;font-size:13px;color:var(--text-2)">
+          <label style="display:flex;align-items:center;gap:4px;font-weight:400"><input type="checkbox" class="vis-chk" data-k="photo" checked> 头像照片</label>
           <label style="display:flex;align-items:center;gap:4px;font-weight:400"><input type="checkbox" class="vis-chk" data-k="phone" checked> 电话</label>
           <label style="display:flex;align-items:center;gap:4px;font-weight:400"><input type="checkbox" class="vis-chk" data-k="birthday" checked> 生日</label>
           <label style="display:flex;align-items:center;gap:4px;font-weight:400"><input type="checkbox" class="vis-chk" data-k="tags" checked> 爱好标签</label>
           <label style="display:flex;align-items:center;gap:4px;font-weight:400"><input type="checkbox" class="vis-chk" data-k="emoji" checked> 表情包</label>
+          <label style="display:flex;align-items:center;gap:4px;font-weight:400"><input type="checkbox" class="vis-chk" data-k="sticker" checked> 表情图</label>
           <label style="display:flex;align-items:center;gap:4px;font-weight:400"><input type="checkbox" class="vis-chk" data-k="catchphrase" checked> 口头禅</label>
           <label style="display:flex;align-items:center;gap:4px;font-weight:400"><input type="checkbox" class="vis-chk" data-k="quote" checked> 最喜欢的话</label>
           <label style="display:flex;align-items:center;gap:4px;font-weight:400"><input type="checkbox" class="vis-chk" data-k="dislike" checked> 雷区</label>
@@ -1080,11 +1082,12 @@ function clearSticker() {
   document.getElementById('stickerClearBtn').style.display = 'none';
 }
 function avatarHTML(f, sizeClass) {
-  if (f.photo) return `<img class="avatar" src="${f.photo}" alt="">`;
+  // 照片仅在管理员允许访客查看时显示；隐藏则回退为彩色首字头像
+  if (f.photo && canSee(f,'photo')) return `<img class="avatar" src="${f.photo}" alt="">`;
   return `<div class="avatar" style="background:${colorOf(f.id)}">${esc((f.nickname||f.name).charAt(0))}</div>`;
 }
 function stickerHTML(f) {
-  if (f.sticker) return `<img class="sticker-img" src="${f.sticker}" alt="">`;
+  if (f.sticker && canSee(f,'sticker')) return `<img class="sticker-img" src="${f.sticker}" alt="">`;
   if (f.emoji && canSee(f,'emoji')) return `<div style="font-size:24px;margin-left:auto">${esc(f.emoji)}</div>`;
   return '';
 }
@@ -1190,12 +1193,12 @@ function openDetail(id) {
     ${f.phone&&canSee(f,'phone')?`<div class="detail-row"><span class="k">电话</span><a href="tel:${esc(f.phone)}">${esc(f.phone)}</a></div>`:''}
     ${tags.length&&canSee(f,'tags')?`<div class="detail-row"><span class="k">爱好</span>${tags.map(t=>`<span class="tag">${esc(t)}</span>`).join('')}</div>`:''}
     ${f.emoji&&canSee(f,'emoji')?`<div class="detail-row"><span class="k">表情包</span><span style="font-size:20px">${esc(f.emoji)}</span></div>`:''}
-    ${f.sticker?`<div class="detail-row"><span class="k">表情图</span><img src="${f.sticker}" style="width:64px;height:64px;object-fit:contain;border-radius:8px;vertical-align:middle"></div>`:''}
+    ${f.sticker&&canSee(f,'sticker')?`<div class="detail-row"><span class="k">表情图</span><img src="${f.sticker}" style="width:64px;height:64px;object-fit:contain;border-radius:8px;vertical-align:middle"></div>`:''}
     ${f.catchphrase&&canSee(f,'catchphrase')?`<div class="detail-row"><span class="k">口头禅</span>"${esc(f.catchphrase)}"</div>`:''}
     ${f.quote&&canSee(f,'quote')?`<div class="detail-row"><span class="k">最爱的话</span><i>${esc(f.quote)}</i></div>`:''}
     ${f.dislike&&canSee(f,'dislike')?`<div class="detail-row"><span class="k">⚠️ 雷区</span><span style="color:var(--danger)">${esc(f.dislike).replace(/\n/g,'<br>')}</span></div>`:''}
     ${f.note&&canSee(f,'note')?`<div class="detail-row"><span class="k">备注</span>${esc(f.note).replace(/\n/g,'<br>')}</div>`:''}
-    ${admin?`<div class="detail-row" style="border-top:1px dashed #e5e7eb;margin-top:6px;padding-top:12px;font-size:12px;color:var(--text-3)">📝 创建者：${ownerLabel}　${f.locked?'🔒 已锁定（创建者无法再修改）':'🔓 未锁定'}<br>🔒 访客可见：${(()=>{const K={phone:'电话',birthday:'生日',tags:'爱好',emoji:'表情包',catchphrase:'口头禅',quote:'最爱的话',dislike:'雷区',note:'备注'};const v=f.visible||{};const off=Object.keys(K).filter(k=>v[k]===false);return off.length?'隐藏 '+off.map(k=>K[k]).join('、'):'全部可见';})()}</div>`:''}
+    ${admin?`<div class="detail-row" style="border-top:1px dashed #e5e7eb;margin-top:6px;padding-top:12px;font-size:12px;color:var(--text-3)">📝 创建者：${ownerLabel}　${f.locked?'🔒 已锁定（创建者无法再修改）':'🔓 未锁定'}<br>🔒 访客可见：${(()=>{const K={photo:'头像照片',phone:'电话',birthday:'生日',tags:'爱好',emoji:'表情包',sticker:'表情图',catchphrase:'口头禅',quote:'最爱的话',dislike:'雷区',note:'备注'};const v=f.visible||{};const off=Object.keys(K).filter(k=>v[k]===false);return off.length?'隐藏 '+off.map(k=>K[k]).join('、'):'全部可见';})()}</div>`:''}
     ${isMember()&&f.owner===memberName&&f.locked?`<div class="detail-row" style="font-size:12px;color:var(--warning)">🔒 管理员已锁定此档案，你暂时无法修改</div>`:''}
     <div class="modal-actions">
       ${editable?`<button class="btn btn-danger btn-sm" onclick="removeFriend('${f.id}')">删除</button>`:''}
