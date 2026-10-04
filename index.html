@@ -484,10 +484,9 @@ const db = (SUPABASE_URL.startsWith('https://') && window.supabase)
   : null;
 
 /* ---------- 密码锁 ---------- */
-// 管理员：admin123（全部权限）　成员：friend123（可建/改自己的档案）　访客：guest123（仅查看）
+// 管理员：admin123（全部权限）　成员：friend123（可建/改自己的档案）
 const ADMIN_HASH = '8fbff5fcab1acf1d';
 const MEMBER_HASH = 'e6889f266cbcd7a8';
-const GUEST_HASH = '49cb1349c8113c60';
 
 function hashPwd(pwd) {
   const msg = 'friend_archive_salt::' + pwd;
@@ -537,7 +536,7 @@ function showLock() {
   document.getElementById('lockTitle').textContent = '欢迎回来';
   document.getElementById('lockDesc').textContent = '请输入密码解锁档案';
   document.getElementById('lockTip').innerHTML =
-    '👑 管理员：可编辑全部档案<br>✨ 成员：凭名字+专属密码管理自己的档案<br>👀 访客：仅浏览';
+    '👑 管理员：可编辑全部档案<br>✨ 成员：凭名字+专属密码管理自己的档案';
   document.getElementById('lockPwd').value = '';
   document.getElementById('lockError').textContent = '';
   document.getElementById('lockScreen').classList.add('show');
@@ -628,10 +627,6 @@ function submitLock() {
     if (!askMemberName()) return; // 没填名字则留在锁屏
     currentRole = 'member';
     sessionStorage.setItem('fa_role', 'member');
-    unlock();
-  } else if (h === GUEST_HASH) {
-    currentRole = 'guest';
-    sessionStorage.setItem('fa_role', 'guest');
     unlock();
   } else {
     errEl.textContent = '密码错误，请重试';
@@ -1261,7 +1256,7 @@ function openForm(f) {
     if (!canEdit(f)) { alert(f.locked ? '该档案已被管理员锁定，无法编辑。' : '你只能编辑自己创建的档案。'); return; }
   } else if (!canAdd()) {
     if (currentRole === 'member') alert('每人只能创建一个档案，你的档案已经存在啦～\n如需重新创建，请联系管理员删除现有档案。');
-    else alert('访客模式无法新建，请使用成员或管理员密码登录。');
+    else alert('请先使用成员或管理员密码登录后再新建。');
     return;
   }
   editingId = f ? f.id : null;
@@ -1437,7 +1432,7 @@ document.getElementById('detailMask').addEventListener('click', e=>{ if(e.target
 
 // 启动：先用本地缓存秒开，再从云端拉取最新数据
 const savedRole = sessionStorage.getItem('fa_role');
-if (savedRole === 'admin' || savedRole === 'guest') {
+if (savedRole === 'admin') {
   currentRole = savedRole;
   unlock();
 } else if (savedRole === 'member' && memberName) {
